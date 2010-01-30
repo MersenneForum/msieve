@@ -419,6 +419,16 @@ static void matrix_thread_init(thread_data_t *t) {
 		free(b->entries);
 		b->entries = NULL;
 	}
+#if 0
+	for (i = 0; i < num_col_blocks; i++) {
+		for (j = 0; j < num_row_blocks; j++) {
+			packed_block_t *b = t->blocks + i*num_row_blocks + j;
+			printf("%7u ", b->num_entries);
+		}
+		printf("\n\n");
+	}
+	fflush(stdout);
+#endif
 }
 
 /*-------------------------------------------------------------------*/
@@ -592,6 +602,8 @@ void packed_matrix_init(msieve_obj *obj,
 	block_size = MIN(block_size, 65536);
 	if (block_size == 0)
 		block_size = 32768;
+
+	block_size = 5000;
 
 	logprintf(obj, "using block size %u for "
 			"processor cache size %u kB\n", 
