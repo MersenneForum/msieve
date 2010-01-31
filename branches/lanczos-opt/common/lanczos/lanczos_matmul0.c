@@ -603,8 +603,6 @@ void packed_matrix_init(msieve_obj *obj,
 	if (block_size == 0)
 		block_size = 32768;
 
-	block_size = 5000;
-
 	logprintf(obj, "using block size %u for "
 			"processor cache size %u kB\n", 
 				block_size, obj->cache_size2 / 1024);
