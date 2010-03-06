@@ -12,10 +12,10 @@ benefit from your work.
 $Id$
 --------------------------------------------------------------------*/
 
-#include "stage1.h"
+#include <stage1.h>
 #include "stage1_core_deg5_128.h"
 
-#define HOST_BATCH_SIZE 40000
+#define HOST_BATCH_SIZE (156*256)
 
 /*------------------------------------------------------------------------*/
 typedef struct {
@@ -136,6 +136,12 @@ sieve_lattice_batch(msieve_obj *obj, lattice_fb_t *L,
 					q_array->num_p - num_q_done);
 
 		curr_num_q = MIN(curr_num_q, Q_SOA_BATCH_SIZE);
+
+		/* force to be a multiple of the block size */
+		curr_num_q -= (curr_num_q % threads_per_block);
+		if (curr_num_q == 0)
+			break;
+
 		memcpy(q_marshall->p, 
 			q_array->p + num_q_done,
 			curr_num_q * sizeof(uint64));
@@ -147,7 +153,7 @@ sieve_lattice_batch(msieve_obj *obj, lattice_fb_t *L,
 		}
 
 		CUDA_TRY(cuMemcpyHtoD(L->gpu_q_array, q_marshall,
-				Q_SOA_BATCH_SIZE * (2 * sizeof(uint64) +
+				Q_SOA_BATCH_SIZE * (sizeof(uint64) +
 					4 * num_poly * sizeof(uint32))))
 		CUDA_TRY(cuParamSeti(gpu_kernel, num_q_offset, curr_num_q))
 
@@ -181,11 +187,8 @@ sieve_lattice_batch(msieve_obj *obj, lattice_fb_t *L,
 #endif
 
 			num_blocks = gpu_info->num_compute_units;
-			if (curr_num_q < found_array_size) {
-				num_blocks = (curr_num_q + 
-					threads_per_block - 1) /
-					threads_per_block;
-			}
+			if (curr_num_q < found_array_size)
+				num_blocks = curr_num_q / threads_per_block;
 
 			CUDA_TRY(cuLaunchGrid(gpu_kernel, 
 						num_blocks, 1))
@@ -226,11 +229,10 @@ sieve_lattice_batch(msieve_obj *obj, lattice_fb_t *L,
 
 /*------------------------------------------------------------------------*/
 uint32
-sieve_lattice_gpu_deg5_128(msieve_obj *obj, lattice_fb_t *L, 
+sieve_lattice_deg5_128(msieve_obj *obj, lattice_fb_t *L, 
 		sieve_fb_t *sieve_small, sieve_fb_t *sieve_large, 
 		uint64 small_p_min, uint64 small_p_max, 
-		uint64 large_p_min, uint64 large_p_max,
-		gpu_info_t *gpu_info, CUfunction gpu_kernel)
+		uint64 large_p_min, uint64 large_p_max)
 {
 	uint32 i;
 	uint64 min_small, min_large;
@@ -238,8 +240,9 @@ sieve_lattice_gpu_deg5_128(msieve_obj *obj, lattice_fb_t *L,
 	p_soa_var_t * p_array;
 	p_soa_var_t * q_array;
 	uint32 num_poly = L->poly->num_poly;
-
 	uint32 threads_per_block;
+	gpu_info_t *gpu_info = L->gpu_info;
+       	CUfunction gpu_kernel = L->gpu_kernel;
 
 	L->p_marshall = (p_soa_t *)xmalloc(sizeof(p_soa_t));
 	L->q_marshall = (q_soa_t *)xmalloc(sizeof(q_soa_t));
@@ -278,7 +281,7 @@ sieve_lattice_gpu_deg5_128(msieve_obj *obj, lattice_fb_t *L,
 		L->fill_p = 0;
 		p_soa_var_reset(q_array);
 		for (i = 0; i < HOST_BATCH_SIZE && 
-				min_large < large_p_max; i++) {
+				min_large != P_SEARCH_DONE; i++) {
 			min_large = sieve_fb_next(sieve_small, L->poly,
 						store_p_soa, L);
 		}
@@ -295,7 +298,7 @@ sieve_lattice_gpu_deg5_128(msieve_obj *obj, lattice_fb_t *L,
 			L->fill_p = 1;
 			p_soa_var_reset(p_array);
 			for (i = 0; i < HOST_BATCH_SIZE && 
-					min_small < small_p_max; i++) {
+					min_small != P_SEARCH_DONE; i++) {
 				min_small = sieve_fb_next(sieve_large, L->poly,
 							store_p_soa, L);
 			}

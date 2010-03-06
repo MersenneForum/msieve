@@ -93,14 +93,22 @@ int32 read_poly(msieve_obj *obj, mp_t *n,
 	/* read one coefficient per line; 'R<number>' is
 	   for rational coefficients, 'A<number>' for algebraic */
 
-	while (!feof(fp) && (buf[0] == 'R' || buf[0] == 'A')) {
+	while ((buf[0] == 'R' || buf[0] == 'A') && isdigit(buf[1])) {
 		signed_mp_t *read_coeff;
 		char *tmp;
 
+		i = buf[1] - '0';
+		if (i > MAX_POLY_DEGREE) {
+			fclose(fp);
+			logprintf(obj, "warning: polynomial degree exceeds "
+					"%d\n", MAX_POLY_DEGREE);
+			exit(-1);
+		}
+
 		if (buf[0] == 'R')
-			read_coeff = rat_poly->coeff + (buf[1] - '0');
+			read_coeff = rat_poly->coeff + i;
 		else
-			read_coeff = alg_poly->coeff + (buf[1] - '0');
+			read_coeff = alg_poly->coeff + i;
 
 		tmp = buf + 2;
 		while (isspace(*tmp))
@@ -114,7 +122,8 @@ int32 read_poly(msieve_obj *obj, mp_t *n,
 			read_coeff->sign = POSITIVE;
 		}
 		mp_str2mp(tmp, &read_coeff->num, 10);
-		fgets(buf, (int)sizeof(buf), fp);
+		if (fgets(buf, (int)sizeof(buf), fp) == NULL)
+			break;
 	}
 
 	for (i = MAX_POLY_DEGREE; i >= 0; i--) {
@@ -239,7 +248,6 @@ int32 find_poly(msieve_obj *obj, mp_t *n) {
 		printf("lower/upper bounds must both be specified\n");
 		return -3;
 	}
-
 
 	poly_config_init(&config);
 

@@ -12,57 +12,52 @@ benefit from your work.
 $Id$
 --------------------------------------------------------------------*/
 
-#ifndef _STAGE1_CORE_DEG6_96_H_
-#define _STAGE1_CORE_DEG6_96_H_
+#ifndef _STAGE1_CORE_DEG5_64_H_
+#define _STAGE1_CORE_DEG5_64_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #ifdef __CUDACC__
-typedef int int32;
-typedef unsigned int uint32;
-typedef unsigned long long uint64;
-#define MAX_ROOTS 128
+	#include "cuda_intrinsics.h"
 
-/* 96-bit integers */
-
-typedef struct {
-	uint32 w[3];
-} uint96;
-
+	#define POLY_BATCH_SIZE 40
 #endif
 
 /* structure indicating a collision */
 
 typedef struct {
-	uint64 p;
-	uint64 q;
-	uint96 offset;
-	uint96 proot;
+	uint32 p;
+	uint32 q;
+	uint32 which_poly;
+	uint32 pad;
+	uint64 offset;
+	uint64 proot;
 } found_t;
 
-#define P_ARRAY_WORDS 1000
+/* the outer loop needs parallel access to different p,
+   so we store in SOA format. All the entries in the structure
+   have the same number of roots */
 
-#define P_PACKED_HEADER_WORDS 3
-
-typedef struct {
-	uint64 p;
-	uint64 lattice_size;
-	uint32 num_roots;
-	uint32 pad;
-	uint96 roots[MAX_ROOTS];
-} p_packed_t;
-
-#define Q_SOA_BATCH_SIZE (3*30*256)
+#define P_SOA_BATCH_SIZE 2048
 
 typedef struct {
-	uint64 p[Q_SOA_BATCH_SIZE];
-	uint32 roots[3 * MAX_ROOTS][Q_SOA_BATCH_SIZE];
+	uint32 p[P_SOA_BATCH_SIZE];
+	uint32 lattice_size[P_SOA_BATCH_SIZE];
+	uint64 roots[POLY_BATCH_SIZE][P_SOA_BATCH_SIZE];
+} p_soa_t;
+
+#define Q_SOA_BATCH_SIZE (3*30*384)
+
+typedef struct {
+	uint32 p[Q_SOA_BATCH_SIZE];
+	uint64 roots[POLY_BATCH_SIZE+1][Q_SOA_BATCH_SIZE];
 } q_soa_t;
+
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* !_STAGE1_CORE_DEG6_96_H_ */
+#endif /* !_STAGE1_CORE_DEG5_64_H_ */

@@ -12,102 +12,60 @@ benefit from your work.
 $Id$
 --------------------------------------------------------------------*/
 
-#include "stage1.h"
+#include <stage1.h>
 
-#if 0
-#define CHECK
-#endif
+/* structures for storing arithmetic progressions. Rational
+   leading coeffs of NFS polynomials are assumed to be the 
+   product of two groups of factors p, each of size at most 64
+   bits (32 bits is the maximum for degree 4, and is enough 
+   for 512-bit factorizations using degree 5), and candidates 
+   must satisfy a condition modulo p^2 */
 
-typedef struct {
-	p_batch_t p_array;
-	p_batch_t q_array;
-
-	poly_batch_t *poly;
-
-	double start_time;
-	uint32 deadline;
-	uint32 num_tests;
-
-	mpz_t p, p2, pr, q, q2, qr, inv, tmp, limit;
-	mpz_t tmp1, tmp2, tmp3, tmp4;
-} lattice_fb_t;
-
-#define MIN_LATTICE_SIZE 8
+#define MAX_P ((uint64)(-1))
 
 /*------------------------------------------------------------------------*/
-static void 
-lattice_fb_free(lattice_fb_t *L)
+void
+handle_collision(poly_search_t *poly, uint32 which_poly,
+		uint64 p, uint128 proot, uint128 res, uint64 q)
 {
-	p_batch_free(&L->p_array);
-	p_batch_free(&L->q_array);
-	mpz_clear(L->p);
-	mpz_clear(L->p2);
-	mpz_clear(L->pr);
-	mpz_clear(L->q);
-	mpz_clear(L->q2);
-	mpz_clear(L->qr);
-	mpz_clear(L->inv);
-	mpz_clear(L->tmp);
-	mpz_clear(L->limit);
-	mpz_clear(L->tmp1);
-	mpz_clear(L->tmp2);
-	mpz_clear(L->tmp3);
-	mpz_clear(L->tmp4);
-}
+	curr_poly_t *c = poly->batch + which_poly;
 
-/*------------------------------------------------------------------------*/
-static void 
-lattice_fb_init(lattice_fb_t *L, poly_batch_t *poly, 
-		uint32 deadline)
-{
-	p_batch_init(&L->p_array);
-	p_batch_init(&L->q_array);
-	L->poly = poly;
+	uint64_2gmp(p, poly->tmp1);
+	uint64_2gmp(q, poly->tmp2);
 
-	L->start_time = get_cpu_time();
-	L->deadline = deadline;
-	L->num_tests = 0;
+	mpz_gcd(poly->tmp3, poly->tmp1, c->high_coeff);
+	if (mpz_cmp_ui(poly->tmp3, 1))
+		return;
+	mpz_gcd(poly->tmp3, poly->tmp2, c->high_coeff);
+	if (mpz_cmp_ui(poly->tmp3, 1))
+		return;
+	mpz_gcd(poly->tmp3, poly->tmp1, poly->tmp2);
+	if (mpz_cmp_ui(poly->tmp3, 1))
+		return;
 
-	mpz_init(L->p);
-	mpz_init(L->p2);
-	mpz_init(L->pr);
-	mpz_init(L->q);
-	mpz_init(L->q2);
-	mpz_init(L->qr);
-	mpz_init(L->inv);
-	mpz_init(L->tmp);
-	mpz_init(L->limit);
-	mpz_init(L->tmp1);
-	mpz_init(L->tmp2);
-	mpz_init(L->tmp3);
-	mpz_init(L->tmp4);
-}
+	mpz_import(poly->tmp3, 4, -1, sizeof(uint32), 0, 0, &proot);
+	mpz_import(poly->tmp4, 4, -1, sizeof(uint32), 0, 0, &res);
 
-/*------------------------------------------------------------------------*/
-static void
-handle_collision(poly_batch_t *poly, uint32 which_poly,
-		uint32 p, uint32 q, mpz_t m0_inc)
-{
-	curr_poly_t *curr = poly->batch + which_poly;
+	mpz_mul(poly->p, poly->tmp1, poly->tmp2);
+	mpz_mul(poly->tmp1, poly->tmp1, poly->tmp1);
+	mpz_addmul(poly->tmp3, poly->tmp1, poly->tmp4);
+	mpz_sub(poly->tmp3, poly->tmp3, c->mp_sieve_size);
+	mpz_add(poly->m0, c->trans_m0, poly->tmp3);
 
-	mpz_set_ui(poly->p, (mp_limb_t)p);
-	mpz_mul_ui(poly->p, poly->p, (mp_limb_t)q);
-	mpz_add(poly->m0, curr->trans_m0, m0_inc);
-
-#ifdef CHECK
-	gmp_printf("poly %u p %u q %u coeff %Zd\n", which_poly, p, q, poly->p);
+	/* check */
+	gmp_printf("poly %2u p %.0lf q %.0lf coeff %Zd\n", 
+			which_poly, (double)p, (double)q, poly->p);
 
 	mpz_pow_ui(poly->tmp1, poly->m0, (mp_limb_t)poly->degree);
 	mpz_mul(poly->tmp2, poly->p, poly->p);
-	mpz_sub(poly->tmp1, curr->trans_N, poly->tmp1);
+	mpz_sub(poly->tmp1, c->trans_N, poly->tmp1);
 	mpz_tdiv_r(poly->tmp3, poly->tmp1, poly->tmp2);
 	if (mpz_cmp_ui(poly->tmp3, (mp_limb_t)0)) {
 		printf("crap\n");
-		exit(-1);
+		return;
 	}
-#endif
 
-	mpz_mul_ui(poly->tmp1, curr->high_coeff, (mp_limb_t)poly->degree);
+	mpz_mul_ui(poly->tmp1, c->high_coeff, (mp_limb_t)poly->degree);
 	mpz_tdiv_qr(poly->m0, poly->tmp2, poly->m0, poly->tmp1);
 	mpz_invert(poly->tmp3, poly->tmp1, poly->p);
 
@@ -123,405 +81,271 @@ handle_collision(poly_batch_t *poly, uint32 which_poly,
 
 	mpz_addmul(poly->m0, poly->tmp4, poly->tmp5);
 
-	poly->callback(curr->high_coeff, poly->p, poly->m0, 
-			curr->coeff_max, poly->callback_data);
+	poly->callback(c->high_coeff, poly->p, poly->m0, 
+			c->coeff_max, poly->callback_data);
 }
 
 /*------------------------------------------------------------------------*/
-typedef struct {
-	uint32 lattice_size;
-	uint64 *roots;
-} cached_root_t;
-
-static void
-sieve_lattice_p32_q64(uint32 p, uint32 num_ppoly, 
-		index_t *p_index, uint32 num_proots,
-		uint64 *proots, uint32 q, uint32 num_qroots,
-		cached_root_t cached_qroots[POLY_BATCH_SIZE],
-		lattice_fb_t *L)
-{
-	uint32 i, j, k;
-	poly_batch_t *poly = L->poly;
-	uint32 p2 = p * p;
-	uint64 q2 = (uint64)q * (uint64)q;
-	uint32 inv = mp_modinv_1(mp_mod64(q2, p2), p2);
-
-	for (i = 0; i < num_ppoly; i++) {
-
-		uint32 which_poly = p_index[i].which_poly;
-		cached_root_t *cache = cached_qroots + which_poly;
-		uint64 *pr;
-		uint64 *qr = cache->roots;
-		uint32 lattice_size;
-
-		if (qr == NULL)
-			continue;
-
-		pr = proots + p_index[i].start_offset;
-		lattice_size = cache->lattice_size;
-
-		for (j = 0; j < num_qroots; j++) {
-
-			uint32 qrj = mp_mod64(qr[j], p2);
-
-			for (k = 0; k < num_proots; k++) {
-				uint32 prk = pr[k];
-				uint32 tmp = mp_modmul_1(inv, 
-						mp_modsub_1(prk, qrj, p2), p2);
-
-				if (tmp < lattice_size ||
-				    tmp >= p2 - lattice_size) {
-
-					mpz_set_ui(L->tmp, (mp_limb_t)tmp);
-					uint64_2gmp(q2, L->q2);
-					uint64_2gmp(qr[j], L->qr);
-
-					if (tmp > p2 - lattice_size) {
-						mpz_sub_ui(L->tmp, L->tmp, 
-							     (mp_limb_t)p2);
-					}
-					mpz_addmul(L->qr, L->tmp, L->q2);
-					handle_collision(poly, which_poly,
-						       	p, q, L->qr);
-				}
-			}
-		}
-	}
-}
-
-/*------------------------------------------------------------------------*/
-static void
-sieve_lattice_p64_q64(uint32 p, uint32 num_ppoly, 
-		index_t *p_index, uint32 num_proots, 
-		uint64 *proots, uint32 q, uint32 num_qroots,
-		cached_root_t cached_qroots[POLY_BATCH_SIZE],
-		lattice_fb_t *L)
-{
-	uint32 i, j, k;
-	poly_batch_t *poly = L->poly;
-	uint64 p2 = (uint64)p * (uint64)p;
-	uint64 q2 = (uint64)q * (uint64)q;
-	uint64 inv = mp_modinv_2(q2 % p2, p2);
-
-	for (i = 0; i < num_ppoly; i++) {
-
-		uint32 which_poly = p_index[i].which_poly;
-		cached_root_t *cache = cached_qroots + which_poly;
-		uint64 *pr;
-		uint64 *qr = cache->roots;
-		uint32 lattice_size;
-
-		if (qr == NULL)
-			continue;
-
-		pr = proots + p_index[i].start_offset;
-		lattice_size = cache->lattice_size;
-
-		for (j = 0; j < num_qroots; j++) {
-
-			uint64 qrj = qr[j] % p2;
-
-			for (k = 0; k < num_proots; k++) {
-				uint64 tmp = mp_modsub_2(pr[k], qrj, p2);
-
-				tmp = mp_modmul_2(tmp, inv, p2);
-
-				if (tmp < lattice_size ||
-				    tmp >= p2 - lattice_size) {
-
-					uint64_2gmp(tmp, L->tmp);
-					uint64_2gmp(q2, L->q2);
-
-					if (tmp > p2 - lattice_size) {
-						uint64_2gmp(p2, L->p2);
-						mpz_sub(L->tmp, L->tmp, L->p2);
-					}
-					uint64_2gmp(qr[j], L->qr);
-					mpz_addmul(L->qr, L->tmp, L->q2);
-					handle_collision(poly, which_poly,
-						       	p, q, L->qr);
-				}
-			}
-		}
-	}
-}
-
-/*------------------------------------------------------------------------*/
-static uint32
-sieve_lattice_q(lattice_fb_t *L)
-{
-	uint32 i;
-	poly_batch_t *poly = L->poly;
-	p_batch_t *p_array = &L->p_array;
-	p_batch_t *q_array = &L->q_array;
-	uint32 p_cutoff;
-
-	p_entry_t *q_entry = q_array->entries;
-	uint32 q = q_entry->p;
-	uint32 num_qpoly = q_entry->num_poly;
-	uint32 num_qroots = q_entry->num_roots;
-	index_t *q_index = q_array->index;
-	cached_root_t cached_qroots[POLY_BATCH_SIZE];
-	uint32 max_lattice = 0;
-
-	memset(cached_qroots, 0, sizeof(cached_qroots));
-
-	for (i = 0; i < num_qpoly; i++) {
-		uint32 which_poly = q_index[i].which_poly;
-		curr_poly_t *curr = poly->batch + which_poly;
-		uint32 lattice_size = (uint32)(curr->sieve_size / 
-						((double)q * q));
-
-		max_lattice = MAX(max_lattice, lattice_size);
-		cached_qroots[which_poly].lattice_size = MAX(lattice_size, 2);
-		cached_qroots[which_poly].roots = q_array->roots + 
-						q_index[i].start_offset;
-	}
-
-	p_cutoff = (uint32)sqrt((double)((uint64)q * q >> 32)) + 1;
-
-	for (i = 0; i < p_array->num_small_entries; i++) {
-
-		p_entry_t *p_entry = p_array->entries + i;
-		uint32 p = p_entry->p;
-		uint32 num_ppoly = p_entry->num_poly;
-		uint32 num_proots = p_entry->num_roots;
-		index_t *p_index = p_array->index + p_entry->index_start_offset;
-		uint64 *proots = p_array->roots;
-
-		if (p > p_cutoff)
-			sieve_lattice_p32_q64(p, num_ppoly, p_index, 
-						num_proots, proots, 
-						q, num_qroots, 
-						cached_qroots, L);
-		else
-			sieve_lattice_p64_q64(p, num_ppoly, p_index, 
-						num_proots, proots, 
-						q, num_qroots, 
-						cached_qroots, L);
-	}
-
-	for (; i < p_array->num_entries; i++) {
-
-		p_entry_t *p_entry = p_array->entries + i;
-		uint32 p = p_entry->p;
-		uint32 num_ppoly = p_entry->num_poly;
-		index_t *p_index = p_array->index + p_entry->index_start_offset;
-		uint32 num_proots = p_entry->num_roots;
-		uint64 *proots = p_array->roots;
-
-		sieve_lattice_p64_q64(p, num_ppoly, p_index, 
-					num_proots, proots,
-					q, num_qroots, 
-					cached_qroots, L);
-	}
-
-	L->num_tests += p_array->num_entries;
-	if (L->num_tests >= 2000000) {
-
-		double curr_time = get_cpu_time();
-		double elapsed = curr_time - L->start_time;
-
-		if (elapsed > L->deadline)
-			return 1;
-		L->num_tests = 0;
-	}
-
-	return (max_lattice < MIN_LATTICE_SIZE);
-}
-
-/*------------------------------------------------------------------------*/
-#define P_BATCH_SIZE 5000
-
-static uint32
-sieve_lattice_core(msieve_obj *obj, lattice_fb_t *L, 
-		sieve_fb_t *sieve_small, sieve_fb_t *sieve_large, 
-		uint32 small_p_min, uint32 small_p_max, 
-		uint32 large_p_min, uint32 large_p_max)
-{
-	uint32 i;
-	uint32 min_small, min_large;
-	uint32 min_roots_small, min_roots_large;
-	uint32 degree = L->poly->degree;
-
-	printf("p %u %u %u %u lattice %.0lf\n", 
-			small_p_min, small_p_max,
-			large_p_min, large_p_max,
-			L->poly->batch[L->poly->num_poly - 1].sieve_size / 
-				((double)large_p_min * large_p_min));
-
-	min_small = small_p_min;
-	sieve_fb_reset(sieve_small, (uint64)min_small);
-
-	if (small_p_min < 1000000)
-		min_roots_small = 1;
-	else if (small_p_min < 10000000)
-		min_roots_small = degree;
-	else
-		min_roots_small = degree * degree;
-
-	if (large_p_min < 1000000)
-		min_roots_large = 1;
-	else if (large_p_min < 3000000)
-		min_roots_large = degree;
-	else
-		min_roots_large = degree * degree;
-
-	if (degree == 4)
-		min_roots_large *= 2;
-
-	while (min_small < small_p_max) {
-
-		p_batch_reset(&L->p_array);
-		for (i = 0; i < P_BATCH_SIZE && 
-					min_small < small_p_max; i++) {
-			min_small = sieve_fb_next(sieve_small, L->poly,
-						&L->p_array, 
-						(uint64)small_p_max,
-						min_roots_small);
-		}
-		if (L->p_array.num_entries == 0)
-			return 0;
-
-		printf("batch %u %u\n", L->p_array.num_entries, min_small);
-
-		min_large = large_p_min;
-		sieve_fb_reset(sieve_large, (uint64)min_large);
-
-		while (min_large <= large_p_max) {
-
-			p_batch_reset(&L->q_array);
-			min_large = sieve_fb_next(sieve_large, L->poly,
-						&L->q_array, 
-						(uint64)large_p_max,
-						min_roots_large);
-			if (sieve_lattice_q(L) ||
-			    obj->flags & MSIEVE_FLAG_STOP_SIEVING)
-				return 1;
-		}
-	}
-
-	return 0;
-}
-
-/*------------------------------------------------------------------------*/
-#define P_SCALE 1.3
-#define MIN_SMALL_RANGE 20000
-
 void
-sieve_lattice(msieve_obj *obj, poly_batch_t *poly, 
+sieve_lattice(msieve_obj *obj, poly_search_t *poly, 
 		uint32 small_fb_max, uint32 large_fb_min, 
 		uint32 large_fb_max, uint32 deadline)
 {
 	lattice_fb_t L;
 	sieve_fb_t sieve_small, sieve_large;
-	uint32 small_p_min, small_p_max;
-	uint32 large_p_min, large_p_max;
-	curr_poly_t *mid_poly = poly->batch + poly->num_poly / 2;
-	curr_poly_t *last_poly = poly->batch + poly->num_poly - 1;
+	uint64 small_p_min, small_p_max;
+	uint64 large_p_min, large_p_max;
+	uint32 bits;
+	double p_scale = 1.1;
+	uint32 degree = poly->degree;
+	uint32 max_roots;
+	curr_poly_t *middle_poly;
+	curr_poly_t *last_poly;
 
-	if (last_poly->p_size_max >= (double)MAX_P * MAX_P) {
-		printf("error: rational leading coefficient is too large\n");
+	middle_poly = poly->batch + poly->num_poly / 2;
+	last_poly = poly->batch + poly->num_poly - 1;
+
+	if ((poly->degree == 4 && 
+	    middle_poly->p_size_max >= MAX_P) ||
+	    middle_poly->p_size_max >= (double)MAX_P * MAX_P) {
+		printf("error: rational leading coefficient is "
+			"too large at %le (%0.3f bits)\n",
+	 		 middle_poly->p_size_max, 
+			 log(middle_poly->p_size_max)/ M_LN2);
 		exit(-1);
 	}
-	large_p_min = sqrt(mid_poly->p_size_max);
-	if (large_p_min >= MAX_P / P_SCALE)
+
+	bits = mpz_sizeinbase(poly->N, 2);
+	switch (degree) {
+	case 4:
+		if (bits < 320)
+			p_scale = 1.3;
+		break;
+
+	case 5:
+		if (bits < 363)
+			p_scale = 1.3;
+		else if (bits < 396)
+			p_scale = 1.2;
+		break;
+
+	case 6:
+		if (bits < 512)
+			p_scale = 1.3;
+		else if (bits < 690)
+			p_scale = 1.2;
+		else
+			p_scale = 1.1;
+		break;
+	}
+
+	large_p_min = sqrt(middle_poly->p_size_max);
+	if (large_p_min >= MAX_P / p_scale)
 		large_p_max = MAX_P - 1;
 	else
-		large_p_max = P_SCALE * large_p_min;
+		large_p_max = p_scale * large_p_min;
 
-	small_p_min = large_p_min / P_SCALE;
+	small_p_min = large_p_min / p_scale;
 	small_p_max = large_p_min - 1;
 
-	gmp_printf("coeff %Zd-%Zd %u %u %u %u lattice %.0lf\n", 
-			poly->batch[0].high_coeff, 
-			poly->batch[poly->num_poly - 1].high_coeff,
+	gmp_printf("coeff %Zd-%Zd"
+		   " %" PRIu64 " %" PRIu64 
+		   " %" PRIu64 " %" PRIu64 "\n",
+			poly->batch[0].high_coeff,
+			last_poly->high_coeff,
 			small_p_min, small_p_max,
-			large_p_min, large_p_max,
-			last_poly->sieve_size / 
-				((double)large_p_min * large_p_min));
+			large_p_min, large_p_max);
 
-	if (small_p_max < large_fb_min * large_fb_min) {
-		if (small_p_min < large_fb_max) {
-			small_p_max = MIN(small_p_max, large_fb_max);
-		}
-		else {
-			small_p_max = large_fb_max;
-			while (small_p_min > large_fb_max)
-				small_p_min = small_p_min / P_SCALE;
-		}
+	max_roots = degree;
+	if (degree == 5)
+		max_roots = 1;
 
-		while (small_p_min > large_fb_min &&
-		       small_p_max - small_p_min < MIN_SMALL_RANGE) {
-			small_p_min = small_p_min / P_SCALE;
-		}
-		small_p_min = MAX(small_p_min, large_fb_min);
-		large_p_min = mid_poly->p_size_max / small_p_max;
-		large_p_max = mid_poly->p_size_max / small_p_min;
-	}
-	else if (small_p_min > large_fb_max &&
-		 small_p_min < large_fb_min * large_fb_min) {
-		small_p_min = large_fb_min * large_fb_min;
-	}
+	sieve_fb_init(&sieve_small, poly, 
+			5, small_fb_max, 
+			1, max_roots);
+	sieve_fb_init(&sieve_large, poly, 
+			large_fb_min, large_fb_max, 
+			1, max_roots);
 
-	if (last_poly->sieve_size / ((double)large_p_min * 
-			large_p_min) < MIN_LATTICE_SIZE) {
-		return;
-	}
-
-	sieve_fb_init(&sieve_small, poly, large_fb_min, large_fb_max);
-	sieve_fb_init(&sieve_large, poly, 5, small_fb_max);
-	lattice_fb_init(&L, poly, deadline);
+	L.poly = poly;
+	L.start_time = time(NULL);
+	L.deadline = deadline;
+#ifdef HAVE_CUDA
+	L.gpu_info = poly->gpu_info;
+#endif
 
 	while (1) {
-		if (sieve_lattice_core(obj, &L, &sieve_small, &sieve_large,
-					small_p_min, small_p_max,
-					large_p_min, large_p_max)) {
-			break;
+		uint32 done = 1;
+		uint64 small_p_min2 = small_p_min;
+		uint64 small_p_max2 = small_p_max;
+		uint64 large_p_min2 = large_p_min;
+		uint64 large_p_max2 = large_p_max;
+
+		if (small_p_min2 > 1.0e8) {
+			uint32 small_piece;
+			uint32 large_piece;
+			uint32 num_small_pieces = 50;
+			uint32 num_large_pieces = 50;
+			
+			if (small_p_max2 < 1.0e9)
+				num_small_pieces = 5;
+			else if (small_p_max2 < 1.0e10)
+				num_small_pieces = 10;
+			else if (small_p_max2 < 1.0e11)
+				num_small_pieces = 25;
+			
+			small_piece = get_rand(&obj->seed1, 
+					&obj->seed2) % num_small_pieces;
+			small_p_min2 = small_p_min + small_piece *
+						((small_p_max - small_p_min) /
+						num_small_pieces);
+			small_p_max2 = small_p_min + (small_piece + 1) *
+						((small_p_max - small_p_min) /
+						num_small_pieces);
+
+			if (large_p_max2 < 1.0e9)
+				num_large_pieces = 5;
+			else if (large_p_max2 < 1.0e10)
+				num_large_pieces = 10;
+			else if (large_p_max2 < 1.0e11)
+				num_large_pieces = 25;
+
+			large_piece = get_rand(&obj->seed1, 
+					&obj->seed2) % num_large_pieces;
+			large_p_min2 = large_p_min + large_piece *
+						((large_p_max - large_p_min) /
+						num_large_pieces);
+			large_p_max2 = large_p_min + (large_piece + 1) *
+						((large_p_max - large_p_min) /
+						num_large_pieces);
 		}
 
-		small_p_max = small_p_min;
-		if (small_p_max <= large_fb_min)
-			break;
-		while (small_p_min > large_fb_min &&
-		       small_p_max - small_p_min < MIN_SMALL_RANGE) {
-			small_p_min = small_p_min / P_SCALE;
+#ifdef HAVE_CUDA
+		if (degree == 4) {
+			if (large_p_max2 < ((uint64)1 << 24))
+				L.gpu_module = poly->gpu_module48;
+			else
+				L.gpu_module = poly->gpu_module64;
 		}
-		small_p_max--;
-		small_p_min = MAX(small_p_min, large_fb_min);
+		else if (degree == 5) {
+			if (large_p_max2 < ((uint64)1 << 24))
+				L.gpu_module = poly->gpu_module48;
+			else if (large_p_max2 < ((uint64)1 << 32))
+				L.gpu_module = poly->gpu_module64;
+			else if (large_p_max2 < ((uint64)1 << 36))
+				L.gpu_module = poly->gpu_module72;
+			else if (large_p_max2 < ((uint64)1 << 48))
+				L.gpu_module = poly->gpu_module96;
+			else
+				L.gpu_module = poly->gpu_module128;
+		}
+		else {	/* degree 6 */
+			if (large_p_max2 < ((uint64)1 << 24))
+				L.gpu_module = poly->gpu_module48;
+			else if (large_p_max2 < ((uint64)1 << 32))
+				L.gpu_module = poly->gpu_module64;
+			else if (large_p_max2 < ((uint64)1 << 36))
+				L.gpu_module = poly->gpu_module72;
+			else if (large_p_max2 < ((uint64)1 << 48))
+				L.gpu_module = poly->gpu_module96;
+			else
+				L.gpu_module = poly->gpu_module128;
+		}
 
-		if (small_p_max < large_fb_min * large_fb_min) {
-			if (small_p_min < large_fb_max) {
-				small_p_max = MIN(small_p_max, large_fb_max);
+		CUDA_TRY(cuModuleGetFunction(&L.gpu_kernel, 
+				L.gpu_module, "sieve_kernel"))
+		if (degree != 5)
+			CUDA_TRY(cuModuleGetGlobal(&L.gpu_p_array, 
+				NULL, L.gpu_module, "pbatch"))
+#endif
+
+		if (degree == 4) {
+			/* bounds may have grown too large */
+			if (large_p_max2 >= ((uint64)1 << 32))
+				break;
+
+			done = sieve_lattice_deg46_64(obj, &L,
+					&sieve_small, &sieve_large,
+					(uint32)small_p_min2, 
+					(uint32)small_p_max2,
+					(uint32)large_p_min2, 
+					(uint32)large_p_max2);
+		}
+		else if (degree == 5) {
+			if (large_p_max2 < ((uint64)1 << 32)) {
+				done = sieve_lattice_deg5_64(obj, &L,
+					&sieve_small, &sieve_large,
+					(uint32)small_p_min2, 
+					(uint32)small_p_max2,
+					(uint32)large_p_min2, 
+					(uint32)large_p_max2);
+			}
+			else if (large_p_max2 < ((uint64)1 << 36)) {
+				done = sieve_lattice_deg5_96(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
+			}
+			else if (large_p_max2 < ((uint64)1 << 48)) {
+				done = sieve_lattice_deg5_96(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
 			}
 			else {
-				small_p_max = large_fb_max;
-				while (small_p_min > large_fb_max)
-					small_p_min = small_p_min / P_SCALE;
+				done = sieve_lattice_deg5_128(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
 			}
-
-			while (small_p_min > large_fb_min &&
-			       small_p_max - small_p_min < MIN_SMALL_RANGE) {
-				small_p_min = small_p_min / P_SCALE;
+		}
+		else {	/* degree 6 */
+			if (large_p_max2 < ((uint64)1 << 32)) {
+				done = sieve_lattice_deg46_64(obj, &L,
+					&sieve_small, &sieve_large,
+					(uint32)small_p_min2, 
+					(uint32)small_p_max2,
+					(uint32)large_p_min2, 
+					(uint32)large_p_max2);
 			}
-			small_p_min = MAX(small_p_min, large_fb_min);
-		}
-		else if (small_p_min > large_fb_max &&
-			 small_p_min < large_fb_min * large_fb_min) {
-			small_p_min = large_fb_min * large_fb_min;
+			else if (large_p_max2 < ((uint64)1 << 36)) {
+				done = sieve_lattice_deg6_96(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
+			}
+			else if (large_p_max2 < ((uint64)1 << 48)) {
+				done = sieve_lattice_deg6_96(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
+			}
+			else {
+				done = sieve_lattice_deg6_128(obj, &L,
+					&sieve_small, &sieve_large,
+					small_p_min2, small_p_max2,
+					large_p_min2, large_p_max2);
+			}
 		}
 
-		if (mid_poly->p_size_max / small_p_max >= MAX_P)
+		if (done)
 			break;
-		large_p_min = mid_poly->p_size_max / small_p_max;
 
-		if (mid_poly->p_size_max / small_p_min >= MAX_P)
+		small_p_max = small_p_min - 1;
+		small_p_min = small_p_min / p_scale;
+		if (small_p_min < small_fb_max)
+			break;
+
+		if (middle_poly->p_size_max / small_p_max >= MAX_P)
+			break;
+		large_p_min = middle_poly->p_size_max / small_p_max;
+
+		if (middle_poly->p_size_max / small_p_min >= MAX_P)
 			large_p_max = MAX_P - 1;
 		else
-			large_p_max = mid_poly->p_size_max / small_p_min;
+			large_p_max = middle_poly->p_size_max / small_p_min;
 	}
 
-	lattice_fb_free(&L);
 	sieve_fb_free(&sieve_small);
 	sieve_fb_free(&sieve_large);
 }

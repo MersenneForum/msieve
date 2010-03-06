@@ -2,9 +2,9 @@
 <VisualStudioProject
 	ProjectType="Visual C++"
 	Version="9.00"
-	Name="stage1_core_deg46_64"
-	ProjectGUID="{6CFF3196-7771-4507-A637-0739E1F35D01}"
-	RootNamespace="stage1_core_deg46_64"
+	Name="stage1_core_deg5_48"
+	ProjectGUID="{DE4462B7-6389-4C4E-BFDC-90111ADCF0FC}"
+	RootNamespace="stage1_core_deg5_48"
 	Keyword="Win32Proj"
 	TargetFrameworkVersion="196613"
 	>
@@ -18,7 +18,7 @@
 	</Platforms>
 	<ToolFiles>
 		<ToolFile
-			RelativePath="..\..\..\..\..\..\..\..\..\ProgramData\NVIDIA Corporation\NVIDIA GPU Computing SDK\C\common\Cuda.Rules"
+			RelativePath="..\..\..\..\..\..\..\..\ProgramData\NVIDIA Corporation\NVIDIA GPU Computing SDK\C\common\Cuda.Rules"
 		/>
 	</ToolFiles>
 	<Configurations>
@@ -356,7 +356,7 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
-				RelativePath="..\..\gnfs\poly\stage1_gpu\stage1_core_deg46_64.cu"
+				RelativePath="..\..\gnfs\poly\stage1\stage1_core_gpu\stage1_core_deg5_48.cu"
 				>
 			</File>
 		</Filter>
@@ -365,10 +365,6 @@
 			Filter="h;hpp;hxx;hm;inl;inc;xsd"
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
-			<File
-				RelativePath="..\..\gnfs\poly\stage1_gpu\stage1_core_deg46_64.h"
-				>
-			</File>
 		</Filter>
 	</Files>
 	<Globals>

@@ -20,13 +20,7 @@ OPT_FLAGS = -O3 -fomit-frame-pointer -march=athlon-xp -DNDEBUG
 #OPT_FLAGS = -O3 -fomit-frame-pointer -march=k8 -DNDEBUG
 
 CFLAGS = $(OPT_FLAGS) $(MACHINE_FLAGS) $(WARN_FLAGS) \
-		-I. -Iinclude -Ignfs -Ignfs/poly
-
-# Note to MinGW users: the library does not use pthreads calls in
-# win32 or win64, so it's safe to pull libpthread into the link line.
-# Of course this does mean you have to install the minGW pthreads bundle...
-
-LIBS = -lgmp -lm -lpthread
+		-I. -Iinclude -Ignfs -Ignfs/poly -Ignfs/poly/stage1
 
 # tweak the compile flags
 
@@ -48,6 +42,12 @@ ifeq ($(CUDA),1)
 	LIBS += "$(CUDA_LIB_DIR)/cuda.lib"
 	# LIBS += -lcuda
 endif
+
+# Note to MinGW users: the library does not use pthreads calls in
+# win32 or win64, so it's safe to pull libpthread into the link line.
+# Of course this does mean you have to install the minGW pthreads bundle...
+
+LIBS += -lgmp -lm -lpthread
 
 #---------------------------------- Generic file lists -------------------
 
@@ -147,11 +147,15 @@ QS_CORE_OBJS_X86_64 = \
 #---------------------------------- GPU file lists -------------------------
 
 GPU_OBJS = \
+	stage1_core_deg46_48.ptx \
 	stage1_core_deg46_64.ptx \
 	stage1_core_deg5_128.ptx \
+	stage1_core_deg5_48.ptx \
 	stage1_core_deg5_64.ptx \
+	stage1_core_deg5_72.ptx \
 	stage1_core_deg5_96.ptx \
 	stage1_core_deg6_128.ptx \
+	stage1_core_deg6_72.ptx \
 	stage1_core_deg6_96.ptx
 
 #---------------------------------- NFS file lists -------------------------
@@ -160,22 +164,23 @@ NFS_HDR = \
 	gnfs/filter/filter.h \
 	gnfs/poly/poly.h \
 	gnfs/poly/poly_skew.h \
+	gnfs/poly/stage1/stage1.h \
 	gnfs/poly/stage2/stage2.h \
 	gnfs/sieve/sieve.h \
 	gnfs/sqrt/sqrt.h \
 	gnfs/gnfs.h
 
 NFS_GPU_HDR = \
-	gnfs/poly/stage1_gpu/stage1.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg46_64.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg5_128.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg5_64.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg5_96.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg6_96.h \
-	gnfs/poly/stage1_gpu/stage1_core_deg6_128.h
+	gnfs/poly/stage1/stage1_core_gpu/cuda_intrinsics.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg46_64.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg5_128.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg5_64.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg5_96.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg6_96.h \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_core_deg6_128.h
 
 NFS_NOGPU_HDR = \
-	gnfs/poly/stage1/stage1.h
+	gnfs/poly/stage1/stage1_core/cpu_intrinsics.h
 
 NFS_SRCS = \
 	gnfs/poly/poly.c \
@@ -183,6 +188,9 @@ NFS_SRCS = \
 	gnfs/poly/polyutil.c \
 	gnfs/poly/root_score.c \
 	gnfs/poly/size_score.c \
+	gnfs/poly/stage1/stage1.c \
+	gnfs/poly/stage1/stage1_roots.c \
+	gnfs/poly/stage1/stage1_sieve.c \
 	gnfs/poly/stage2/optimize.c \
 	gnfs/poly/stage2/root_sieve.c \
 	gnfs/poly/stage2/stage2.c \
@@ -202,33 +210,34 @@ NFS_SRCS = \
 NFS_OBJS = $(NFS_SRCS:.c=.no)
 
 NFS_GPU_SRCS = \
-	gnfs/poly/stage1_gpu/stage1.c \
-	gnfs/poly/stage1_gpu/stage1_roots.c \
-	gnfs/poly/stage1_gpu/stage1_sieve.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg46_64.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg5_128.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg5_64.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg5_96.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg6_128.c \
-	gnfs/poly/stage1_gpu/stage1_sieve_deg6_96.c
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg46_64.c \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg5_128.c \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg5_64.c \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg5_96.c \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg6_128.c \
+	gnfs/poly/stage1/stage1_core_gpu/stage1_sieve_deg6_96.c
 
 NFS_GPU_OBJS = $(NFS_GPU_SRCS:.c=.no)
 
 NFS_NOGPU_SRCS = \
-	gnfs/poly/stage1/stage1.c \
-	gnfs/poly/stage1/stage1_roots.c \
-	gnfs/poly/stage1/stage1_sieve.c
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg46_64.c \
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg5_128.c \
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg5_64.c \
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg5_96.c \
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg6_128.c \
+	gnfs/poly/stage1/stage1_core/stage1_sieve_deg6_96.c
 
 NFS_NOGPU_OBJS = $(NFS_NOGPU_SRCS:.c=.no)
 
 ifeq ($(CUDA),1)
 	NFS_HDR += $(NFS_GPU_HDR)
 	NFS_SRCS += $(NFS_GPU_SRCS)
-	NFS_OBJS += $(NFS_GPU_OBJS) $(GPU_OBJS)
+	NFS_OBJS += $(NFS_GPU_OBJS)
 else
 	NFS_HDR += $(NFS_NOGPU_HDR)
 	NFS_SRCS += $(NFS_NOGPU_SRCS)
 	NFS_OBJS += $(NFS_NOGPU_OBJS)
+	GPU_OBJS =
 endif
 
 #---------------------------------- make targets -------------------------
@@ -242,7 +251,7 @@ all:
 	@echo "add 'CUDA=1' for Nvidia graphics card support"
 
 x86: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
-		$(QS_CORE_OBJS_X86) $(NFS_OBJS)
+		$(QS_CORE_OBJS_X86) $(NFS_OBJS) $(GPU_OBJS)
 	rm -f libmsieve.a
 	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
 			$(QS_CORE_OBJS) $(QS_CORE_OBJS_X86) \
@@ -252,7 +261,7 @@ x86: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
 			libmsieve.a $(LIBS)
 
 x86_64: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
-		$(QS_CORE_OBJS_X86_64) $(NFS_OBJS)
+		$(QS_CORE_OBJS_X86_64) $(NFS_OBJS) $(GPU_OBJS)
 	rm -f libmsieve.a
 	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
 			$(QS_CORE_OBJS) $(QS_CORE_OBJS_X86_64) \
@@ -261,7 +270,7 @@ x86_64: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
 	$(CC) $(CFLAGS) demo.c -o msieve $(LDFLAGS) \
 			libmsieve.a $(LIBS)
 
-generic: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) $(NFS_OBJS)
+generic: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) $(NFS_OBJS) $(GPU_OBJS)
 	rm -f libmsieve.a
 	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
 			$(QS_CORE_OBJS) $(NFS_OBJS)
@@ -273,7 +282,7 @@ clean:
 	rm -f msieve msieve.exe libmsieve.a $(COMMON_OBJS) 	\
 		$(QS_OBJS) $(QS_CORE_OBJS) $(QS_CORE_OBJS_X86) \
 		$(QS_CORE_OBJS_X86_64) $(NFS_OBJS) \
-		$(NFS_GPU_OBJS) $(NFS_NOGPU_OBJS) $(GPU_OBJS)
+		$(NFS_GPU_OBJS) $(NFS_NOGPU_OBJS) *.ptx
 
 #----------------------------------------- build rules ----------------------
 
@@ -359,26 +368,5 @@ mpqs/sieve_core_k8_64_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
 
 # GPU build rules
 
-stage1_core_deg46_64.ptx: gnfs/poly/stage1_gpu/stage1_core_deg46_64.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg46_64.h
-	nvcc -ptx -o $@ $<
-
-stage1_core_deg5_128.ptx: gnfs/poly/stage1_gpu/stage1_core_deg5_128.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg5_128.h
-	nvcc -ptx -o $@ $<
-
-stage1_core_deg5_64.ptx: gnfs/poly/stage1_gpu/stage1_core_deg5_64.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg5_64.h
-	nvcc -ptx -o $@ $<
-
-stage1_core_deg5_96.ptx: gnfs/poly/stage1_gpu/stage1_core_deg5_96.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg5_96.h
-	nvcc -ptx -o $@ $<
-
-stage1_core_deg6_128.ptx: gnfs/poly/stage1_gpu/stage1_core_deg6_128.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg6_128.h
-	nvcc -ptx -o $@ $<
-
-stage1_core_deg6_96.ptx: gnfs/poly/stage1_gpu/stage1_core_deg6_96.cu  \
-			gnfs/poly/stage1_gpu/stage1_core_deg6_96.h
+%.ptx: gnfs/poly/stage1/stage1_core_gpu/%.cu $(NFS_GPU_HDR)
 	nvcc -ptx -o $@ $<

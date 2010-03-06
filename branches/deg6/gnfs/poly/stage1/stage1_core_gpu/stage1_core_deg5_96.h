@@ -12,57 +12,49 @@ benefit from your work.
 $Id$
 --------------------------------------------------------------------*/
 
-#ifndef _STAGE1_CORE_DEG6_128_H_
-#define _STAGE1_CORE_DEG6_128_H_
+#ifndef _STAGE1_CORE_DEG5_96_H_
+#define _STAGE1_CORE_DEG5_96_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #ifdef __CUDACC__
-typedef int int32;
-typedef unsigned int uint32;
-typedef unsigned long long uint64;
-#define MAX_ROOTS 128
+	#include "cuda_intrinsics.h"
 
-/* 128-bit integers */
-
-typedef struct {
-	uint32 w[4];
-} uint128;
-
+	#define POLY_BATCH_SIZE 40
 #endif
+
 
 /* structure indicating a collision */
 
 typedef struct {
 	uint64 p;
 	uint64 q;
-	uint128 offset;
-	uint128 proot;
+	uint32 which_poly;
+	uint32 pad;
+	uint96 offset;
+	uint96 proot;
 } found_t;
 
-#define P_ARRAY_WORDS 1000
-
-#define P_PACKED_HEADER_WORDS 3
+#define P_SOA_BATCH_SIZE 2048
 
 typedef struct {
-	uint64 p;
-	uint64 lattice_size;
-	uint32 num_roots;
-	uint32 pad;
-	uint128 roots[MAX_ROOTS];
-} p_packed_t;
+	uint64 p[P_SOA_BATCH_SIZE];
+	uint64 lattice_size[P_SOA_BATCH_SIZE];
+	uint32 roots[3 * POLY_BATCH_SIZE][P_SOA_BATCH_SIZE];
+} p_soa_t;
 
 #define Q_SOA_BATCH_SIZE (3*30*256)
 
 typedef struct {
 	uint64 p[Q_SOA_BATCH_SIZE];
-	uint32 roots[4 * MAX_ROOTS][Q_SOA_BATCH_SIZE];
+	uint32 roots[3 * (POLY_BATCH_SIZE + 1)][Q_SOA_BATCH_SIZE];
 } q_soa_t;
+
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* !_STAGE1_CORE_DEG6_128_H_ */
+#endif /* !_STAGE1_CORE_DEG5_96_H_ */
