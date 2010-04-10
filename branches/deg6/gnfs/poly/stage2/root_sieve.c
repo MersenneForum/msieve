@@ -16,7 +16,6 @@ $Id$
 
 #define ROOT_HEAP_SIZE 1000
 #define LATTICE_HEAP_SIZE 20
-#define MAX_SIEVE_PRIME 100
 #define MAX_SIEVE_PRIME_POWER 1000
 #define LOG_SCALE_FACTOR 1000
 #define UNROLL 4
@@ -848,11 +847,12 @@ root_sieve_xy(root_sieve_t *rs, double max_norm,
 		compute_line_size(max_norm, a, deg, p, d, 
 				  xmin, xmax, &xmin, &xmax);
 
-//		printf("%d %lf %.lf\n", y0, xmin, xmax);
+//		printf("%d %lf %lf\n", y0, xmin, xmax);
 		if (xmax - xmin < 1000.0)
 			break;
 
 		root_sieve_x(rs, (int64)xmin, (int64)xmax, y0);
+
 		y0 += y_inc;
 		lines_done++;
 	}
@@ -880,8 +880,8 @@ static void process_rotations(poly_stage2_t *data,
 }
 
 /*-------------------------------------------------------------------------*/
-static uint32
-root_sieve_run_core(poly_stage2_t *data, double alpha_proj)
+static void
+root_sieve_run_deg45(poly_stage2_t *data, double alpha_proj)
 {
 	uint32 i;
 	double dbl_p;
@@ -889,7 +889,6 @@ root_sieve_run_core(poly_stage2_t *data, double alpha_proj)
 	double dbl_sv[MAX_POLY_DEGREE + 1];
 	double max_norm;
 	uint32 deg = data->degree;
-	uint32 lines_done = 0;
 
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	curr_poly_t *c = &s->curr_poly;
@@ -901,7 +900,6 @@ root_sieve_run_core(poly_stage2_t *data, double alpha_proj)
 		dbl_sv[i] = mpz_get_d(c->gmp_a[i]);
 
 	max_norm = data->max_norm * exp(-alpha_proj);
-	init_sieve(c, rs, deg, -alpha_proj);
 
 	rs->root_heap.cutoffs[0].y = 100;
 	rs->root_heap.cutoffs[0].score = LOG_SCALE_FACTOR * 
@@ -917,16 +915,12 @@ root_sieve_run_core(poly_stage2_t *data, double alpha_proj)
 					 rs->sieve_bias - good_alpha[deg-4][2]);
 
 	rs->root_heap.num_entries = 0;
-	lines_done += root_sieve_xy(rs, max_norm, dbl_sv, 
-					deg, dbl_p, dbl_d, 0, 1);
+	root_sieve_xy(rs, max_norm, dbl_sv, deg, dbl_p, dbl_d, 0, 1);
 	process_rotations(data, rs);
 
 	rs->root_heap.num_entries = 0;
-	lines_done += root_sieve_xy(rs, max_norm, dbl_sv, 
-					deg, dbl_p, dbl_d, -1, -1);
+	root_sieve_xy(rs, max_norm, dbl_sv, deg, dbl_p, dbl_d, -1, -1);
 	process_rotations(data, rs);
-
-	return lines_done;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -935,37 +929,15 @@ root_sieve_run(poly_stage2_t *data, double alpha_proj)
 {
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	curr_poly_t *c = &s->curr_poly;
+	root_sieve_t *rs = &s->root_sieve;
 	uint32 deg = data->degree;
-	uint32 z;
 
-	if (deg != 6) {
-		root_sieve_run_core(data, alpha_proj);
-		return;
-	}
+	init_sieve(c, rs, deg, -alpha_proj);
 
-	z = 0;
-	while (1) {
-		if (root_sieve_run_core(data, alpha_proj) == 0)
-			break;
-
-		z++;
-		mpz_add(c->gmp_a[3], c->gmp_a[3], c->gmp_p);
-		mpz_sub(c->gmp_a[2], c->gmp_a[2], c->gmp_d);
-	}
-	mpz_submul_ui(c->gmp_a[3], c->gmp_p, (mp_limb_t)(z + 1));
-	mpz_addmul_ui(c->gmp_a[2], c->gmp_d, (mp_limb_t)(z + 1));
-
-	z = 1;
-	while (1) {
-		if (root_sieve_run_core(data, alpha_proj) == 0)
-			break;
-
-		z++;
-		mpz_sub(c->gmp_a[3], c->gmp_a[3], c->gmp_p);
-		mpz_add(c->gmp_a[2], c->gmp_a[2], c->gmp_d);
-	}
-	mpz_addmul_ui(c->gmp_a[3], c->gmp_p, (mp_limb_t)z);
-	mpz_submul_ui(c->gmp_a[2], c->gmp_d, (mp_limb_t)z);
+	if (deg != 6)
+		root_sieve_run_deg45(data, alpha_proj);
+	else
+		root_sieve_run_deg6(data, alpha_proj);
 }
 
 /*-------------------------------------------------------------------------*/

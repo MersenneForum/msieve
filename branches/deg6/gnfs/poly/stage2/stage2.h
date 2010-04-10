@@ -67,6 +67,8 @@ double optimize_basic(dpoly_t *apoly, double *best_skewness,
 /*-----------------------------------------------------------------------*/
 /* data for the root sieve */
 
+#define MAX_SIEVE_PRIME 100
+
 typedef struct {
 	uint16 resclass;
 	uint16 start;
@@ -124,6 +126,7 @@ typedef struct {
 void root_sieve_init(root_sieve_t *rs);
 void root_sieve_free(root_sieve_t *rs);
 void root_sieve_run(poly_stage2_t *data, double alpha_proj);
+void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
 
 /*-------------------------------------------------------------------------*/
 
