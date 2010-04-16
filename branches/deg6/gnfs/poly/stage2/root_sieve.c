@@ -273,7 +273,9 @@ save_rotation(root_heap_t *heap, int64 x, int32 y, uint32 score)
 		if (abs_y > heap->cutoffs[1].y ||
 		    abs_x > heap->cutoffs[1].x) {
 			if (score > heap->default_cutoff) {
-				optimize_final(x, y, 
+				int64_2gmp(x, heap->x);
+				mpz_set_si(heap->y, y);
+				optimize_final(heap->x, heap->y, 0,
 					(poly_stage2_t *)heap->extra);
 				return;
 			}
@@ -289,7 +291,10 @@ save_rotation(root_heap_t *heap, int64 x, int32 y, uint32 score)
 		}
 
 		if (score > heap->default_cutoff) {
-			optimize_final(x, y, (poly_stage2_t *)heap->extra);
+			int64_2gmp(x, heap->x);
+			mpz_set_si(heap->y, y);
+			optimize_final(heap->x, heap->y, 0, 
+					(poly_stage2_t *)heap->extra);
 			return;
 		}
 	}
@@ -874,7 +879,9 @@ static void process_rotations(poly_stage2_t *data,
 		if (rs->random_root_score - (rs->sieve_bias + 
 			(double)r->score / LOG_SCALE_FACTOR) <
 					ROOT_SCORE_COARSE_MIN) {
-			optimize_final(r->x, r->y, data);
+			int64_2gmp(r->x, rs->root_heap.x);
+			mpz_set_si(rs->root_heap.y, r->y);
+			optimize_final(rs->root_heap.x, rs->root_heap.y, 0, data);
 		}
 	}
 }
@@ -949,6 +956,8 @@ void root_sieve_init(root_sieve_t *rs)
 
 	memset(rs, 0, sizeof(root_sieve_t));
 
+	mpz_init(rs->root_heap.x);
+	mpz_init(rs->root_heap.y);
 	rs->root_heap.max_entries = ROOT_HEAP_SIZE;
 	rs->root_heap.entries = (rotation_t *)xmalloc(ROOT_HEAP_SIZE * 
 							sizeof(rotation_t));
@@ -1013,12 +1022,30 @@ void root_sieve_init(root_sieve_t *rs)
 							sizeof(sieve_root_t));
 		}
 	}
+
+	mpz_init(rs->line_min);
+	mpz_init(rs->line_max);
+	mpz_init(rs->lattice_size);
+	mpz_init(rs->resclass_x);
+	mpz_init(rs->resclass_y);
+	mpz_init(rs->resclass);
+	mpz_init(rs->curr_x);
+	mpz_init(rs->curr_y);
+	mpz_init(rs->tmp1);
+	mpz_init(rs->tmp2);
+	mpz_init(rs->tmp3);
+	mpz_init(rs->tmp4);
+	mpz_init(rs->tmp5);
+	mpz_init(rs->tmp6);
 }
 
 /*-------------------------------------------------------------------------*/
 void root_sieve_free(root_sieve_t *rs)
 {
 	uint32 i, j;
+
+	mpz_clear(rs->root_heap.x);
+	mpz_clear(rs->root_heap.y);
 
 	for (i = 0; i < rs->num_primes; i++) {
 		sieve_prime_t *prime = rs->primes + i;
@@ -1034,4 +1061,19 @@ void root_sieve_free(root_sieve_t *rs)
 	free(rs->tmp_lattice_heap.entries);
 	aligned_free(rs->sieve_block);
 	memset(rs, 0, sizeof(root_sieve_t));
+
+	mpz_clear(rs->line_min);
+	mpz_clear(rs->line_max);
+	mpz_clear(rs->lattice_size);
+	mpz_clear(rs->resclass_x);
+	mpz_clear(rs->resclass_y);
+	mpz_clear(rs->resclass);
+	mpz_clear(rs->curr_x);
+	mpz_clear(rs->curr_y);
+	mpz_clear(rs->tmp1);
+	mpz_clear(rs->tmp2);
+	mpz_clear(rs->tmp3);
+	mpz_clear(rs->tmp4);
+	mpz_clear(rs->tmp5);
+	mpz_clear(rs->tmp6);
 }

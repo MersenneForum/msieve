@@ -334,7 +334,7 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	} while (fabs(score - last_score) > .001 * fabs(score));
 
 	*pol_norm = sqrt(fabs(score));
-#if 0
+#if 1
 	printf("norm %.7e skew %lf\n", *pol_norm, best[SKEWNESS]);
 	for (i = 0; i < 2; i++)
 		gmp_printf("%+Zd\n", c->gmp_lina[i]);
@@ -457,7 +457,7 @@ get_bernstein_score(curr_poly_t *c, assess_t *assess,
 
 /*-------------------------------------------------------------------------*/
 void
-optimize_final(int64 x, int y, poly_stage2_t *data)
+optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data)
 {
 	uint32 i;
 	uint32 deg = data->degree;
@@ -472,20 +472,20 @@ optimize_final(int64 x, int y, poly_stage2_t *data)
 	for (i = 0; i <= deg; i++)
 		mpz_set(c->gmp_b[i], c->gmp_a[i]);
 
-	mpz_set_si(c->gmp_help1, y);
-	mpz_mul(c->gmp_help2, c->gmp_help1, c->gmp_p);
-	mpz_add(c->gmp_b[2], c->gmp_b[2], c->gmp_help2);
-	mpz_mul(c->gmp_help1, c->gmp_help1, c->gmp_d);
-	mpz_sub(c->gmp_b[1], c->gmp_b[1], c->gmp_help1);
+	int64_2gmp(z, c->gmp_help1);
+	mpz_addmul(c->gmp_b[3], c->gmp_p, c->gmp_help1);
+	mpz_submul(c->gmp_b[2], c->gmp_d, c->gmp_help1);
 
-	int64_2gmp(x, c->gmp_help1);
-	mpz_mul(c->gmp_help2, c->gmp_help1, c->gmp_p);
-	mpz_add(c->gmp_b[1], c->gmp_b[1], c->gmp_help2);
-	mpz_mul(c->gmp_help1, c->gmp_help1, c->gmp_d);
-	mpz_sub(c->gmp_b[0], c->gmp_b[0], c->gmp_help1);
+	mpz_addmul(c->gmp_b[2], c->gmp_p, y);
+	mpz_submul(c->gmp_b[1], c->gmp_d, y);
+
+	mpz_addmul(c->gmp_b[1], c->gmp_p, x);
+	mpz_submul(c->gmp_b[0], c->gmp_d, x);
 
 	if (stage2_root_score(deg, c->gmp_b, data->murphy_p_bound, &alpha, 0))
 		return;
+
+	printf("%le\n", alpha);
 
 	if (alpha > -4.5)
 		return;

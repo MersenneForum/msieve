@@ -59,7 +59,7 @@ uint32 stage2_root_score(uint32 deg1, mpz_t *coeff1,
 
 void optimize_initial(poly_stage2_t *data, double *pol_norm);
 
-void optimize_final(int64 x, int32 y, poly_stage2_t *data);
+void optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data);
 
 double optimize_basic(dpoly_t *apoly, double *best_skewness,
 				double *best_translation);
@@ -107,6 +107,9 @@ typedef struct {
 	rotation_t cutoffs[2];
 	uint32 default_cutoff;
 	void *extra;
+
+	mpz_t x;
+	mpz_t y;
 } root_heap_t;
 
 typedef struct {
@@ -121,6 +124,16 @@ typedef struct {
 	root_heap_t root_heap;
 	root_heap_t lattice_heap;
 	root_heap_t tmp_lattice_heap;
+
+	mpz_t line_min;
+	mpz_t line_max;
+	mpz_t lattice_size;
+	mpz_t resclass_x;
+	mpz_t resclass_y;
+	mpz_t resclass;
+	mpz_t tmp1, tmp2, tmp3, tmp4, tmp5, tmp6;
+	mpz_t curr_x, curr_y;
+
 } root_sieve_t;
 
 void root_sieve_init(root_sieve_t *rs);
