@@ -20,7 +20,7 @@ typedef struct {
 	uint64 z;
 } lattice_t;
 
-#define MAX_FACTORS 8
+#define MAX_FACTORS 10
 
 typedef struct {
 	uint32 start;
@@ -350,7 +350,7 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 		   uint32 num_lattices)
 {
 	uint32 i;
-	int32 i0, i1, i2, i3, i4, i5, i6, i7;
+	int32 i0, i1, i2, i3, i4, i5, i6, i7, i8, i9;
 	uint64 crt_prod[MAX_FACTORS];
 	uint64 crt_accum[MAX_FACTORS + 1][3];
 
@@ -362,12 +362,18 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 		crt_prod[i] *= mp_modinv_1((uint32)(crt_prod[i] % p), p);
 	}
 
-	i0 = i1 = i2 = i3 = i4 = i5 = i6 = i7 = i = 0;
+	i0 = i1 = i2 = i3 = i4 = i5 = i6 = i7 = i8 = i9 = i = 0;
 	crt_accum[num_lattice_primes][0] = 0;
 	crt_accum[num_lattice_primes][1] = 0;
 	crt_accum[num_lattice_primes][2] = 0;
 
 	switch (num_lattice_primes) {
+	case 10:
+		for (i9 = hitlist[9].num_roots - 1; i9 >= 0; i9--) {
+			CRT_ACCUM(9)
+	case 9:
+		for (i8 = hitlist[8].num_roots - 1; i8 >= 0; i8--) {
+			CRT_ACCUM(8)
 	case 8:
 		for (i7 = hitlist[7].num_roots - 1; i7 >= 0; i7--) {
 			CRT_ACCUM(7)
@@ -400,7 +406,7 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 			lattices[i].y = crt_accum[0][1] % lattice_size_xyz;
 			lattices[i].z = crt_accum[0][2] % lattice_size_xyz;
 			i++;
-		}}}}}}}}
+		}}}}}}}}}}
 	}
 }
 
