@@ -180,10 +180,22 @@ typedef struct {
 	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
 	uint32 num_lattice_primes;
 
+	dpoly_t apoly;
+
+	double last_line_min;
+	double last_line_max;
+	uint16 curr_score;
+
+	mpz_t y_base;
+	uint32 y_blocks;
+
 	mpz_t mp_lattice_size;
+	double dbl_lattice_size;
+	mpz_t crt0;
+	mpz_t crt1;
 	mpz_t resclass_x;
 	mpz_t resclass_y;
-	mpz_t tmp1, tmp2, tmp3, tmp4, tmp5, tmp6;
+	mpz_t tmp1, tmp2, tmp3, tmp4;
 } sieve_xy_t;
 
 void sieve_xy_alloc(sieve_xy_t *xy);
@@ -213,7 +225,6 @@ typedef struct {
 	sieve_xyz_t xyzdata;
 	sieve_xy_t xydata;
 
-	uint16 curr_score;
 	mpz_t resclass_x;
 
 	mpz_t curr_x, curr_y;

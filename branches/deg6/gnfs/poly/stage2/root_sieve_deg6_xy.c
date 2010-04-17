@@ -18,10 +18,11 @@ $Id$
 static uint32
 find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 			uint64 lattice_size_xyz, sieve_prime_t *lattice_primes,
-			double line_length)
+			uint64 *lattice_size_xy, double line_length)
 {
 	uint32 i;
 	uint32 num_lattice_primes = 0;
+	uint64 tmp = 1;
 	double target_size = line_length / (double)lattice_size_xyz / 1000;
 	double curr_size = 1.0;
 
@@ -38,12 +39,14 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 		if (curr_size * curr_prime->prime >= target_size)
 			break;
 
+		tmp *= curr_prime->prime;
 		lattice_primes[num_lattice_primes] = *curr_prime;
 		lattice_primes[num_lattice_primes].num_powers = 1;
 		curr_size *= curr_prime->prime;
 		num_lattice_primes++;
 	}
 
+	*lattice_size_xy = tmp;
 	return num_lattice_primes;
 }
 
@@ -78,18 +81,16 @@ root_sieve_xy_core(root_sieve_t *rs)
 static void 
 root_sieve_xy(root_sieve_t *rs, xydata_t *xydata, 
 		uint32 num_lattice_primes, 
-		lattice_t *lattice_xyz, int64 z_base, 
-		uint64 lattice_size_xyz)
+		lattice_t *lattice_xyz, int64 z_base)
 {
 	uint32 i, j, k;
 	hit_t hitlist[MAX_CRT_FACTORS];
 	lattice_t lattices_xy[MAX_XY_LATTICES];
 	sieve_xy_t *xy = &rs->xydata;
-
 	uint32 num_lattices = 1;
-	uint64 lattice_size_xy = 1;
-	uint64 inv_xy;
-	uint64 inv_xyz;
+
+	double line_min, line_max;
+	double direction[3] = {0, 1, 0};
 
 	for (i = 0; i < num_lattice_primes; i++) {
 
@@ -114,46 +115,48 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 		hits->power = p;
 		hits->num_roots = k;
 		num_lattices *= k;
-		lattice_size_xy *= p;
 	}
 
 	num_lattices = MIN(num_lattices, MAX_XY_LATTICES);
 
 	compute_lattices(hitlist, num_lattice_primes,
-			lattices_xy, lattice_size_xy, num_lattices);
+			lattices_xy, xy->lattice_size, num_lattices);
 
-	inv_xy = mp_modinv_2(lattice_size_xyz, lattice_size_xy);
-	inv_xyz = mp_modinv_2(lattice_size_xy, lattice_size_xyz);
+	xy->apoly = rs->apoly;
+	xy->apoly.coeff[3] += z_base * rs->dbl_p;
+	xy->apoly.coeff[2] -= z_base * rs->dbl_d;
+	compute_line_size_deg6(rs->max_norm, &xy->apoly,
+			rs->dbl_p, rs->dbl_d, direction,
+			xy->last_line_min, xy->last_line_max,
+			&line_min, &line_max);
 
-	uint64_2gmp(lattice_size_xy, xy->tmp1);
-	uint64_2gmp(inv_xy, xy->tmp2);
-	uint64_2gmp(lattice_size_xyz, xy->tmp3);
-	uint64_2gmp(inv_xyz, xy->tmp4);
+	mpz_set_d(xy->tmp1, line_min);
+	mpz_tdiv_q(xy->y_base, xy->tmp1, xy->mp_lattice_size);
+	mpz_mul(xy->y_base, xy->y_base, xy->mp_lattice_size);
+	xy->y_blocks = (line_max - line_min) / xy->dbl_lattice_size;
 
-	mpz_mul(xy->mp_lattice_size, xy->tmp1, xy->tmp3);
-	mpz_mul(xy->tmp2, xy->tmp2, xy->tmp3);
-	mpz_mul(xy->tmp4, xy->tmp1, xy->tmp4);
+	gmp_printf("%Zd %u\n", xy->y_base, xy->y_blocks);
 
 	for (i = 0; i < num_lattices; i++) {
 
 		lattice_t *lattice_xy = lattices_xy + i;
 
 		uint64_2gmp(lattice_xy->x, xy->tmp1);
-		uint64_2gmp(lattice_xyz->x, xy->tmp3);
-		mpz_mul(xy->resclass_x, xy->tmp1, xy->tmp2);
-		mpz_addmul(xy->resclass_x, xy->tmp3, xy->tmp4);
+		uint64_2gmp(lattice_xyz->x, xy->tmp2);
+		mpz_mul(xy->resclass_x, xy->tmp1, xy->crt0);
+		mpz_addmul(xy->resclass_x, xy->tmp2, xy->crt1);
 
 		uint64_2gmp(lattice_xy->y, xy->tmp1);
-		uint64_2gmp(lattice_xyz->y, xy->tmp3);
-		mpz_mul(xy->resclass_y, xy->tmp1, xy->tmp2);
-		mpz_addmul(xy->resclass_y, xy->tmp3, xy->tmp4);
+		uint64_2gmp(lattice_xyz->y, xy->tmp2);
+		mpz_mul(xy->resclass_y, xy->tmp1, xy->crt0);
+		mpz_addmul(xy->resclass_y, xy->tmp2, xy->crt1);
 
 		mpz_tdiv_r(xy->resclass_x, xy->resclass_x, 
 				xy->mp_lattice_size);
 		mpz_tdiv_r(xy->resclass_y, xy->resclass_y, 
 				xy->mp_lattice_size);
 
-		rs->curr_score = lattice_xyz->score + lattice_xy->score;
+		xy->curr_score = lattice_xyz->score + lattice_xy->score;
 		rs->curr_z = z_base + lattice_xyz->z; 
 
 		root_sieve_xy_core(rs);
@@ -264,7 +267,7 @@ xydata_init(sieve_prime_t *lattice_primes, xydata_t *xydata,
 
 /*-------------------------------------------------------------------------*/
 static void 
-find_hits_xy(root_sieve_t *rs, xydata_t *xydata, 
+find_hits(root_sieve_t *rs, xydata_t *xydata, 
 		uint32 num_lattice_primes, 
 		lattice_t *lattice_xyz, int64 z_base, 
 		uint32 z_blocks, uint64 lattice_size_xyz)
@@ -313,8 +316,7 @@ find_hits_xy(root_sieve_t *rs, xydata_t *xydata,
 			root_sieve_xy(rs, xydata, 
 					num_lattice_primes,
 					lattice_xyz, 
-					z_base + i * lattice_size_xyz,
-					lattice_size_xyz);
+					z_base + i * lattice_size_xyz);
 		}
 
 		for (j = 0; j < num_lattice_primes; j++) {
@@ -340,30 +342,32 @@ find_hits_xy(root_sieve_t *rs, xydata_t *xydata,
 void
 sieve_xy_alloc(sieve_xy_t *xy)
 {
+	mpz_init(xy->y_base);
 	mpz_init(xy->mp_lattice_size);
 	mpz_init(xy->resclass_x);
 	mpz_init(xy->resclass_y);
+	mpz_init(xy->crt0);
+	mpz_init(xy->crt1);
 	mpz_init(xy->tmp1);
 	mpz_init(xy->tmp2);
 	mpz_init(xy->tmp3);
 	mpz_init(xy->tmp4);
-	mpz_init(xy->tmp5);
-	mpz_init(xy->tmp6);
 }
 
 /*-------------------------------------------------------------------------*/
 void
 sieve_xy_free(sieve_xy_t *xy)
 {
+	mpz_clear(xy->y_base);
 	mpz_clear(xy->mp_lattice_size);
 	mpz_clear(xy->resclass_x);
 	mpz_clear(xy->resclass_y);
+	mpz_clear(xy->crt0);
+	mpz_clear(xy->crt1);
 	mpz_clear(xy->tmp1);
 	mpz_clear(xy->tmp2);
 	mpz_clear(xy->tmp3);
 	mpz_clear(xy->tmp4);
-	mpz_clear(xy->tmp5);
-	mpz_clear(xy->tmp6);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -384,6 +388,9 @@ sieve_xy_run(root_sieve_t *rs)
 	double line_min, line_max;
 	xydata_t xydata[MAX_CRT_FACTORS];
 
+	uint64 inv_xy;
+	uint64 inv_xyz;
+
 	compute_line_size_deg6(rs->max_norm, &rs->apoly,
 			rs->dbl_p, rs->dbl_d, direction,
 			-10000, 10000, &line_min, &line_max);
@@ -391,7 +398,21 @@ sieve_xy_run(root_sieve_t *rs)
 	num_lattice_primes = xy->num_lattice_primes = 
 				find_lattice_primes(rs->primes, 
 					rs->num_primes, xyz->lattice_size, 
-					lattice_primes, line_max - line_min);
+					lattice_primes, &xy->lattice_size,
+					line_max - line_min);
+	xy->last_line_min = line_min;
+	xy->last_line_max = line_max;
+
+	inv_xy = mp_modinv_2(xyz->lattice_size, xy->lattice_size);
+	inv_xyz = mp_modinv_2(xy->lattice_size, xyz->lattice_size);
+	uint64_2gmp(xy->lattice_size, xy->tmp1);
+	uint64_2gmp(inv_xy, xy->tmp2);
+	uint64_2gmp(xyz->lattice_size, xy->tmp3);
+	uint64_2gmp(inv_xyz, xy->tmp4);
+	mpz_mul(xy->mp_lattice_size, xy->tmp1, xy->tmp3);
+	mpz_mul(xy->crt0, xy->tmp2, xy->tmp3);
+	mpz_mul(xy->crt1, xy->tmp1, xy->tmp4);
+	xy->dbl_lattice_size = mpz_get_d(xy->mp_lattice_size);
 
 	xydata_alloc(lattice_primes, num_lattice_primes, 
 			xyz->lattice_size, xydata);
@@ -404,7 +425,7 @@ sieve_xy_run(root_sieve_t *rs)
 				num_lattice_primes,
 				curr_lattice_xyz, z_base);
 
-		find_hits_xy(rs, xydata, num_lattice_primes, 
+		find_hits(rs, xydata, num_lattice_primes, 
 				curr_lattice_xyz, z_base, 
 				z_blocks, xyz->lattice_size);
 	}
