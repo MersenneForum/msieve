@@ -194,6 +194,8 @@ NFS_SRCS = \
 	gnfs/poly/stage2/optimize.c \
 	gnfs/poly/stage2/root_sieve.c \
 	gnfs/poly/stage2/root_sieve_deg6.c \
+	gnfs/poly/stage2/root_sieve_deg6_xy.c \
+	gnfs/poly/stage2/root_sieve_deg6_xyz.c \
 	gnfs/poly/stage2/stage2.c \
 	gnfs/filter/duplicate.c \
 	gnfs/filter/filter.c \

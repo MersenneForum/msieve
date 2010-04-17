@@ -112,6 +112,86 @@ typedef struct {
 	mpz_t y;
 } root_heap_t;
 
+/* definitions for degree 6 root sieve */
+
+#define MAX_CRT_FACTORS 10
+
+typedef struct {
+	uint16 score;
+	uint64 x;
+	uint64 y;
+	uint64 z;
+} lattice_t;
+
+#define MAX_ROOTS 64
+
+typedef struct {
+	uint8 power;
+	uint8 num_roots;
+	uint16 score[MAX_ROOTS];
+	uint8 roots[MAX_ROOTS][3];
+} hit_t;
+
+
+void compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
+			lattice_t *lattices, uint64 lattice_size_xyz,
+			uint32 num_lattices);
+void compute_line_size_deg6(double max_norm, dpoly_t *apoly,
+		  double dbl_p, double dbl_d, double direction[3],
+		  double last_line_min_in, double last_line_max_in,
+		  double *line_min, double *line_max);
+
+
+typedef struct {
+	uint64 lattice_size;
+	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
+	uint32 num_lattice_primes;
+
+	uint32 num_lattices;
+	lattice_t *lattices;
+
+	int64 z_base;
+	uint32 z_blocks;
+} sieve_xyz_t;
+
+void sieve_xyz_alloc(sieve_xyz_t *xyz);
+void sieve_xyz_free(sieve_xyz_t *xyz);
+
+
+typedef struct {
+	uint32 start;
+	uint32 stride_z;
+} xyprog_t;
+
+typedef struct {
+	uint32 p;
+	uint32 latsize_mod_p;
+	uint32 table_size;
+	uint32 num_roots;
+	uint32 max_sieve_val;
+	uint16 contrib;
+	xyprog_t *roots;
+	uint8 *invtable_y;
+	uint8 *sieve;
+} xydata_t;
+
+typedef struct {
+	uint64 lattice_size;
+	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
+	uint32 num_lattice_primes;
+
+	mpz_t mp_lattice_size;
+	mpz_t resclass_x;
+	mpz_t resclass_y;
+	mpz_t tmp1, tmp2, tmp3, tmp4, tmp5, tmp6;
+} sieve_xy_t;
+
+void sieve_xy_alloc(sieve_xy_t *xy);
+void sieve_xy_free(sieve_xy_t *xy);
+
+
+
+
 typedef struct {
 	uint32 num_primes;
 	sieve_prime_t *primes;
@@ -121,25 +201,32 @@ typedef struct {
 
 	uint16 *sieve_block;
 
+	dpoly_t apoly;
+	double dbl_p;
+	double dbl_d;
+	double max_norm;
+
 	root_heap_t root_heap;
 	root_heap_t lattice_heap;
 	root_heap_t tmp_lattice_heap;
 
-	mpz_t line_min;
-	mpz_t line_max;
-	mpz_t lattice_size;
-	mpz_t resclass_x;
-	mpz_t resclass_y;
-	mpz_t resclass;
-	mpz_t tmp1, tmp2, tmp3, tmp4, tmp5, tmp6;
-	mpz_t curr_x, curr_y;
+	sieve_xyz_t xyzdata;
+	sieve_xy_t xydata;
 
+	uint16 curr_score;
+	mpz_t resclass_x;
+
+	mpz_t curr_x, curr_y;
+	int64 curr_z;
 } root_sieve_t;
 
 void root_sieve_init(root_sieve_t *rs);
 void root_sieve_free(root_sieve_t *rs);
 void root_sieve_run(poly_stage2_t *data, double alpha_proj);
+
 void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
+void sieve_xyz_run(root_sieve_t *rs);
+void sieve_xy_run(root_sieve_t *rs);
 
 /*-------------------------------------------------------------------------*/
 

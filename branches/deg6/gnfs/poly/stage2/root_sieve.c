@@ -1023,20 +1023,11 @@ void root_sieve_init(root_sieve_t *rs)
 		}
 	}
 
-	mpz_init(rs->line_min);
-	mpz_init(rs->line_max);
-	mpz_init(rs->lattice_size);
+	sieve_xyz_alloc(&rs->xyzdata);
+	sieve_xy_alloc(&rs->xydata);
 	mpz_init(rs->resclass_x);
-	mpz_init(rs->resclass_y);
-	mpz_init(rs->resclass);
 	mpz_init(rs->curr_x);
 	mpz_init(rs->curr_y);
-	mpz_init(rs->tmp1);
-	mpz_init(rs->tmp2);
-	mpz_init(rs->tmp3);
-	mpz_init(rs->tmp4);
-	mpz_init(rs->tmp5);
-	mpz_init(rs->tmp6);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -1062,18 +1053,9 @@ void root_sieve_free(root_sieve_t *rs)
 	aligned_free(rs->sieve_block);
 	memset(rs, 0, sizeof(root_sieve_t));
 
-	mpz_clear(rs->line_min);
-	mpz_clear(rs->line_max);
-	mpz_clear(rs->lattice_size);
+	sieve_xyz_free(&rs->xyzdata);
+	sieve_xy_free(&rs->xydata);
 	mpz_clear(rs->resclass_x);
-	mpz_clear(rs->resclass_y);
-	mpz_clear(rs->resclass);
 	mpz_clear(rs->curr_x);
 	mpz_clear(rs->curr_y);
-	mpz_clear(rs->tmp1);
-	mpz_clear(rs->tmp2);
-	mpz_clear(rs->tmp3);
-	mpz_clear(rs->tmp4);
-	mpz_clear(rs->tmp5);
-	mpz_clear(rs->tmp6);
 }
