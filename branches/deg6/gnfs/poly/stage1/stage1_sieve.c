@@ -102,6 +102,13 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly,
 	curr_poly_t *middle_poly;
 	curr_poly_t *last_poly;
 
+#if 1
+	uint128 proot = {{0x38519a31, 0x14070b4f}};
+	uint128 res = {{0x03164d7a}};
+	handle_collision(poly, 0, 0xb33252a7, proot, res, 0xc927a62b);
+#endif
+
+
 	middle_poly = poly->batch + poly->num_poly / 2;
 	last_poly = poly->batch + poly->num_poly - 1;
 
