@@ -142,6 +142,8 @@ void compute_line_size_deg6(double max_norm, dpoly_t *apoly,
 		  double *line_min, double *line_max);
 
 
+/* sieve for selecting XYZ triplets */
+
 typedef struct {
 	uint64 lattice_size;
 	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
@@ -157,23 +159,7 @@ typedef struct {
 void sieve_xyz_alloc(sieve_xyz_t *xyz);
 void sieve_xyz_free(sieve_xyz_t *xyz);
 
-
-typedef struct {
-	uint32 start;
-	uint32 stride_z;
-} xyprog_t;
-
-typedef struct {
-	uint32 p;
-	uint32 latsize_mod_p;
-	uint32 table_size;
-	uint32 num_roots;
-	uint32 max_sieve_val;
-	uint16 contrib;
-	xyprog_t *roots;
-	uint8 *invtable_y;
-	uint8 *sieve;
-} xydata_t;
+/* root sieve for selecting XY planes */
 
 typedef struct {
 	uint64 lattice_size;
@@ -202,6 +188,32 @@ void sieve_xy_alloc(sieve_xy_t *xy);
 void sieve_xy_free(sieve_xy_t *xy);
 
 
+/* root sieve for selecting X lines */
+
+typedef struct {
+	uint64 lattice_size;
+	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
+	uint32 num_lattice_primes;
+
+	dpoly_t apoly;
+
+	double last_line_min;
+	double last_line_max;
+	uint16 curr_score;
+
+	mpz_t x_base;
+	uint32 x_blocks;
+
+	mpz_t mp_lattice_size;
+	double dbl_lattice_size;
+	mpz_t crt0;
+	mpz_t crt1;
+	mpz_t resclass;
+	mpz_t tmp1, tmp2, tmp3, tmp4;
+} sieve_x_t;
+
+void sieve_x_alloc(sieve_x_t *x);
+void sieve_x_free(sieve_x_t *x);
 
 
 typedef struct {
@@ -224,8 +236,7 @@ typedef struct {
 
 	sieve_xyz_t xyzdata;
 	sieve_xy_t xydata;
-
-	mpz_t resclass_x;
+	sieve_x_t xdata;
 
 	mpz_t curr_x, curr_y;
 	int64 curr_z;
@@ -238,6 +249,7 @@ void root_sieve_run(poly_stage2_t *data, double alpha_proj);
 void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
 void sieve_xyz_run(root_sieve_t *rs);
 void sieve_xy_run(root_sieve_t *rs);
+void sieve_x_run(root_sieve_t *rs);
 
 /*-------------------------------------------------------------------------*/
 

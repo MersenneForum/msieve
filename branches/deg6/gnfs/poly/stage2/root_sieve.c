@@ -1025,7 +1025,7 @@ void root_sieve_init(root_sieve_t *rs)
 
 	sieve_xyz_alloc(&rs->xyzdata);
 	sieve_xy_alloc(&rs->xydata);
-	mpz_init(rs->resclass_x);
+	sieve_x_alloc(&rs->xdata);
 	mpz_init(rs->curr_x);
 	mpz_init(rs->curr_y);
 }
@@ -1055,7 +1055,7 @@ void root_sieve_free(root_sieve_t *rs)
 
 	sieve_xyz_free(&rs->xyzdata);
 	sieve_xy_free(&rs->xydata);
-	mpz_clear(rs->resclass_x);
+	sieve_x_free(&rs->xdata);
 	mpz_clear(rs->curr_x);
 	mpz_clear(rs->curr_y);
 }

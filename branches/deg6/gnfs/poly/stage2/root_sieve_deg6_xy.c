@@ -14,6 +14,23 @@ $Id$
 
 #include "stage2.h"
 
+typedef struct {
+	uint32 start;
+	uint32 stride_z;
+} xyprog_t;
+
+typedef struct {
+	uint32 p;
+	uint32 latsize_mod_p;
+	uint32 table_size;
+	uint32 num_roots;
+	uint32 max_sieve_val;
+	uint16 contrib;
+	xyprog_t *roots;
+	uint8 *invtable_y;
+	uint8 *sieve;
+} xydata_t;
+
 /*-------------------------------------------------------------------------*/
 static uint32
 find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
@@ -51,31 +68,6 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 }
 
 /*-------------------------------------------------------------------------*/
-static void 
-root_sieve_xy_core(root_sieve_t *rs)
-{
-	uint32 i, j;
-	sieve_xy_t *xy = &rs->xydata;
-#if 1
-	mpz_set(rs->curr_y, xy->resclass_y);
-	mpz_submul_ui(rs->curr_y, xy->mp_lattice_size, 2);
-
-	for (i = 0; i < 4; i++) {
-		mpz_set(rs->curr_x, xy->resclass_x);
-		mpz_submul_ui(rs->curr_x, xy->mp_lattice_size, 2);
-
-		for (j = 0; j < 4; j++) {
-			optimize_final(rs->curr_x, rs->curr_y, rs->curr_z,
-					(poly_stage2_t *)rs->root_heap.extra);
-			mpz_add(rs->curr_x, rs->curr_x, xy->mp_lattice_size);
-		}
-		mpz_add(rs->curr_y, rs->curr_y, xy->mp_lattice_size);
-	}
-	exit(-1);
-#endif
-}
-
-/*-------------------------------------------------------------------------*/
 #define MAX_XY_LATTICES 10
 
 static void 
@@ -103,7 +95,7 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 		hit_t *hits = hitlist + i;
 
 		for (j = k = 0; j < table_size; j++) {
-			if (sieve[j] == max_sieve_val) {
+			if (sieve[j] >= max_sieve_val) {
 				hits->score[k] = sieve[j] * contrib;
 				hits->roots[k][0] = j % p;
 				hits->roots[k][1] = j / p;
@@ -135,8 +127,6 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 	mpz_mul(xy->y_base, xy->y_base, xy->mp_lattice_size);
 	xy->y_blocks = (line_max - line_min) / xy->dbl_lattice_size;
 
-	gmp_printf("%Zd %u\n", xy->y_base, xy->y_blocks);
-
 	for (i = 0; i < num_lattices; i++) {
 
 		lattice_t *lattice_xy = lattices_xy + i;
@@ -159,7 +149,7 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 		xy->curr_score = lattice_xyz->score + lattice_xy->score;
 		rs->curr_z = z_base + lattice_xyz->z; 
 
-		root_sieve_xy_core(rs);
+		sieve_x_run(rs);
 	}
 }
 
@@ -305,7 +295,7 @@ find_hits(root_sieve_t *rs, xydata_t *xydata,
 			}
 
 			for (k = 0; k < table_size; k++) {
-				if (sieve[k] == max_sieve_val)
+				if (sieve[k] >= max_sieve_val)
 					break;
 			}
 			if (k == table_size)
