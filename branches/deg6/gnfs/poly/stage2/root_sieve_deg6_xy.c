@@ -40,7 +40,7 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 	uint32 i;
 	uint32 num_lattice_primes = 0;
 	uint64 tmp = 1;
-	double target_size = line_length / (double)lattice_size_xyz / 1000;
+	double target_size = line_length / (double)lattice_size_xyz / 1e5;
 	double curr_size = 1.0;
 
 	for (i = 0; i < num_primes; i++) {
