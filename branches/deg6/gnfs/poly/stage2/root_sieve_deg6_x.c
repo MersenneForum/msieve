@@ -66,17 +66,6 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 }
 
 /*-------------------------------------------------------------------------*/
-static void 
-root_sieve_final_core(root_sieve_t *rs)
-{
-	sieve_x_t *x = &rs->xdata;
-	mpz_set(rs->curr_x, x->resclass);
-
-	optimize_final(rs->curr_x, rs->curr_y, rs->curr_z,
-			(poly_stage2_t *)rs->root_heap.extra);
-}
-
-/*-------------------------------------------------------------------------*/
 #define MAX_X_LATTICES 30
 
 static void 
@@ -150,7 +139,7 @@ root_sieve_x(root_sieve_t *rs, xdata_t *xdata,
 
 		x->curr_score = xy->curr_score + lattice_x->score;
 
-		root_sieve_final_core(rs);
+		root_sieve_line(rs);
 	}
 }
 

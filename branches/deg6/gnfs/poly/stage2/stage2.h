@@ -215,6 +215,8 @@ typedef struct {
 void sieve_x_alloc(sieve_x_t *x);
 void sieve_x_free(sieve_x_t *x);
 
+#define UNROLL 4
+#define DEFAULT_BLOCK_SIZE  8192
 
 typedef struct {
 	uint32 num_primes;
@@ -250,6 +252,7 @@ void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
 void sieve_xyz_run(root_sieve_t *rs);
 void sieve_xy_run(root_sieve_t *rs);
 void sieve_x_run(root_sieve_t *rs);
+void sieve_line_run(root_sieve_t *rs);
 
 /*-------------------------------------------------------------------------*/
 

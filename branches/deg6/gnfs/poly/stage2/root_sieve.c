@@ -18,8 +18,6 @@ $Id$
 #define LATTICE_HEAP_SIZE 20
 #define MAX_SIEVE_PRIME_POWER 1000
 #define LOG_SCALE_FACTOR 1000
-#define UNROLL 4
-#define DEFAULT_BLOCK_SIZE  8192
 #define ROOT_SCORE_COARSE_MIN (-4.0)
 
 static const double good_alpha[3][3] = {
