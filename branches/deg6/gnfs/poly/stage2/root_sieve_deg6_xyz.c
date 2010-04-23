@@ -181,9 +181,9 @@ sieve_xyz_run(root_sieve_t *rs)
 	lattice_size = xyz->lattice_size = 
 			find_lattice_size((line_max - line_min) / 100);
 
-	xyz->z_base = line_min / lattice_size - 1;
+	xyz->z_base = 0.1 * line_min / lattice_size - 1;
 	xyz->z_base *= lattice_size;
-	xyz->z_blocks = (line_max - line_min) / lattice_size;
+	xyz->z_blocks = 0.1 * (line_max - line_min) / lattice_size;
 
 	num_lattice_primes = xyz->num_lattice_primes = 
 			find_lattice_primes(rs->primes, 

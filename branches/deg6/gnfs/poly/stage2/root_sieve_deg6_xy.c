@@ -122,10 +122,10 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 			xy->last_line_min, xy->last_line_max,
 			&line_min, &line_max);
 
-	mpz_set_d(xy->tmp1, line_min);
+	mpz_set_d(xy->tmp1, 0.1 * line_min);
 	mpz_tdiv_q(xy->y_base, xy->tmp1, xy->mp_lattice_size);
 	mpz_mul(xy->y_base, xy->y_base, xy->mp_lattice_size);
-	xy->y_blocks = (line_max - line_min) / xy->dbl_lattice_size;
+	xy->y_blocks = 0.1 * (line_max - line_min) / xy->dbl_lattice_size;
 
 	for (i = 0; i < num_lattices; i++) {
 
@@ -174,7 +174,7 @@ xydata_alloc(sieve_prime_t *lattice_primes,
 		curr_xydata->latsize_mod_p = lattice_size_xyz % p;
 		curr_xydata->table_size = table_size;
 		curr_xydata->num_roots = num_roots;
-		curr_xydata->max_sieve_val = MIN(num_roots, 6);
+		curr_xydata->max_sieve_val = MIN(num_roots, 5);
 		curr_xydata->contrib = curr_prime->powers[0].sieve_contrib;
 		curr_xydata->roots = (xyprog_t *)xmalloc(num_roots * 
 							sizeof(xyprog_t));
