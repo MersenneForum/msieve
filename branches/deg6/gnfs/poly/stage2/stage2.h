@@ -145,7 +145,7 @@ typedef struct {
 
 
 void compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
-			lattice_t *lattices, uint64 lattice_size_xyz,
+			lattice_t *lattices, uint64 lattice_size,
 			uint32 num_lattices);
 void compute_line_size_deg6(double max_norm, dpoly_t *apoly,
 		  double dbl_p, double dbl_d, double direction[3],
@@ -160,11 +160,15 @@ typedef struct {
 	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
 	uint32 num_lattice_primes;
 
+	double scale_factor;
+
 	uint32 num_lattices;
 	lattice_t *lattices;
 
 	int64 z_base;
 	uint32 z_blocks;
+	double *y_line_min;
+	double *y_line_max;
 } sieve_xyz_t;
 
 void sieve_xyz_alloc(sieve_xyz_t *xyz);
@@ -179,8 +183,9 @@ typedef struct {
 
 	dpoly_t apoly;
 
-	double last_line_min;
-	double last_line_max;
+	double scale_factor;
+	uint32 num_roots_min;
+
 	uint16 curr_score;
 
 	mpz_t y_base;
@@ -207,6 +212,9 @@ typedef struct {
 	uint32 num_lattice_primes;
 
 	dpoly_t apoly;
+
+	double scale_factor;
+	uint32 num_roots_min;
 
 	double last_line_min;
 	double last_line_max;

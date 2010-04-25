@@ -158,6 +158,8 @@ void
 sieve_xyz_free(sieve_xyz_t *xyz)
 {
 	free(xyz->lattices);
+	free(xyz->y_line_min);
+	free(xyz->y_line_max);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -170,6 +172,7 @@ sieve_xyz_run(root_sieve_t *rs)
 	uint64 lattice_size;
 	uint32 num_lattice_primes;
 	uint32 num_lattices;
+	uint32 z_blocks;
 
 	double direction[3] = {0, 0, 1};
 	double line_min, line_max;
@@ -181,9 +184,16 @@ sieve_xyz_run(root_sieve_t *rs)
 	lattice_size = xyz->lattice_size = 
 			find_lattice_size((line_max - line_min) / 100);
 
-	xyz->z_base = 0.1 * line_min / lattice_size - 1;
+	xyz->z_base = xyz->scale_factor * line_min / lattice_size - 1;
 	xyz->z_base *= lattice_size;
-	xyz->z_blocks = 0.1 * (line_max - line_min) / lattice_size;
+	z_blocks = xyz->scale_factor * (line_max - line_min) / lattice_size;
+	if (z_blocks > xyz->z_blocks) {
+		xyz->y_line_min = (double *)xrealloc(xyz->y_line_min,
+						z_blocks * sizeof(double));
+		xyz->y_line_max = (double *)xrealloc(xyz->y_line_max,
+						z_blocks * sizeof(double));
+	}
+	xyz->z_blocks = z_blocks;
 
 	num_lattice_primes = xyz->num_lattice_primes = 
 			find_lattice_primes(rs->primes, 
@@ -204,4 +214,24 @@ sieve_xyz_run(root_sieve_t *rs)
 
 	compute_lattices(hitlist, num_lattice_primes, xyz->lattices,
 			lattice_size, num_lattices);
+
+	line_min = -10000;
+	line_max = 10000;
+	direction[0] = 0;
+	direction[1] = 1;
+	direction[2] = 0;
+	for (i = 0; i < z_blocks; i++) {
+		dpoly_t apoly = rs->apoly;
+		int64 curr_z = xyz->z_base + i * lattice_size;
+
+		apoly.coeff[3] += rs->dbl_p * curr_z;
+		apoly.coeff[2] -= rs->dbl_d * curr_z;
+
+		compute_line_size_deg6(rs->max_norm, &rs->apoly,
+			rs->dbl_p, rs->dbl_d, direction,
+			line_min, line_max, &line_min, &line_max);
+
+		xyz->y_line_min[i] = line_min;
+		xyz->y_line_max[i] = line_max;
+	}
 }

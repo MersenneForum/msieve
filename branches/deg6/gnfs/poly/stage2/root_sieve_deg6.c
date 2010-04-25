@@ -297,13 +297,18 @@ root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 	for (i = 0; i <= data->degree; i++)
 		rs->apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 
+	rs->xyzdata.scale_factor = 0.1;
+	rs->xydata.scale_factor = 0.1;
+	rs->xydata.num_roots_min = 5;
+	rs->xdata.scale_factor = 0.01;
+	rs->xdata.num_roots_min = 5;
 	sieve_xyz_run(rs);
-
 	sieve_xy_run(rs);
 
 	for (i = 0; i < rs->root_heap.num_entries; i++) {
 		mp_rotation_t *r = rs->root_heap.mp_entries + i;
 
+		gmp_printf("%+30Zd\t%+20Zd\t%+" PRId64 "\n", r->x, r->y, r->z);
 		optimize_final(r->x, r->y, r->z, data);
 	}
 	exit(-1);
