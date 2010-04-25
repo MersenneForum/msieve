@@ -300,10 +300,29 @@ root_sieve_line(root_sieve_t *rs)
 	}
 
 	for (i = 0; i < line_heap.num_entries; i++) {
+		line_score_t *entry = line_heap.entries + i;
+		double alpha = rs->random_root_score - 
+				(rs->sieve_bias + 
+				(double)(entry->score + x->curr_score) / 
+						LOG_SCALE_FACTOR); 
+		dpoly_t apoly = rs->apoly;
+		double size_score, best_skew, best_xlate;
+
 		mpz_add(rs->curr_x, x->x_base, x->resclass);
-		mpz_addmul_ui(rs->curr_x, x->mp_lattice_size,
-				line_heap.entries[i].x_off);
-		optimize_final(rs->curr_x, rs->curr_y, rs->curr_z,
-				(poly_stage2_t *)rs->root_heap.extra);
+		mpz_addmul_ui(rs->curr_x, x->mp_lattice_size, entry->x_off);
+
+		apoly.coeff[3] += rs->dbl_p * (double)(rs->curr_z);
+		apoly.coeff[2] -= rs->dbl_d * (double)(rs->curr_z);
+
+		apoly.coeff[2] += rs->dbl_p * mpz_get_d(rs->curr_y);
+		apoly.coeff[1] -= rs->dbl_d * mpz_get_d(rs->curr_y);
+
+		apoly.coeff[1] += rs->dbl_p * mpz_get_d(rs->curr_x);
+		apoly.coeff[0] -= rs->dbl_d * mpz_get_d(rs->curr_x);
+
+		size_score = optimize_basic(&apoly, &best_skew, &best_xlate);
+
+		save_mp_rotation(&rs->root_heap, rs->curr_x, rs->curr_y, 
+				rs->curr_z, log(size_score) + alpha);
 	}
 }

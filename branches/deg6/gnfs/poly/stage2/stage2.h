@@ -68,6 +68,8 @@ double optimize_basic(dpoly_t *apoly, double *best_skewness,
 /* data for the root sieve */
 
 #define MAX_SIEVE_PRIME 100
+#define ROOT_HEAP_SIZE 1000
+#define LOG_SCALE_FACTOR 1000
 
 typedef struct {
 	uint16 resclass;
@@ -100,9 +102,18 @@ typedef struct {
 } rotation_t;
 
 typedef struct {
+	mpz_t x;
+	mpz_t y;
+	int64 z;
+	double score;
+} mp_rotation_t;
+
+typedef struct {
 	uint32 num_entries;
 	uint32 max_entries;
+
 	rotation_t *entries;
+	mp_rotation_t *mp_entries;
 
 	rotation_t cutoffs[2];
 	uint32 default_cutoff;
@@ -253,6 +264,8 @@ void sieve_xyz_run(root_sieve_t *rs);
 void sieve_xy_run(root_sieve_t *rs);
 void sieve_x_run(root_sieve_t *rs);
 void sieve_line_run(root_sieve_t *rs);
+void save_mp_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
+		int64 z, float score);
 
 /*-------------------------------------------------------------------------*/
 

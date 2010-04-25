@@ -217,6 +217,69 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 }
 
 /*-------------------------------------------------------------------------*/
+/* boilerplate code for managing heaps */
+
+#define HEAP_SWAP(a,b) { tmp = a; a = b; b = tmp; }
+#define HEAP_PARENT(i)  (((i)-1) >> 1)
+#define HEAP_LEFT(i)    (2 * (i) + 1)
+#define HEAP_RIGHT(i)   (2 * (i) + 2)
+
+static void
+heapify(mp_rotation_t *h, uint32 index, uint32 size) {
+
+	uint32 c;
+	mp_rotation_t tmp;
+	for (c = HEAP_LEFT(index); c < (size-1); 
+			index = c, c = HEAP_LEFT(index)) {
+
+		if (h[c].score < h[c+1].score)
+			c++;
+
+		if (h[index].score < h[c].score) {
+			HEAP_SWAP(h[index], h[c]);
+		}
+		else {
+			return;
+		}
+	}
+	if (c == (size-1) && h[index].score < h[c].score) {
+		HEAP_SWAP(h[index], h[c]);
+	}
+}
+
+static void
+make_heap(mp_rotation_t *h, uint32 size) {
+
+	int32 i;
+	for (i = HEAP_PARENT(size); i >= 0; i--)
+		heapify(h, (uint32)i, size);
+}
+
+void
+save_mp_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
+		int64 z, float score)
+{
+	mp_rotation_t *h = heap->mp_entries;
+
+	if (heap->num_entries <= heap->max_entries - 1) {
+		mp_rotation_t *r = h + heap->num_entries++;
+		mpz_set(r->x, x);
+		mpz_set(r->y, y);
+		r->z = z;
+		r->score = score;
+		if (heap->num_entries == heap->max_entries)
+			make_heap(h, heap->max_entries);
+	}
+	else if (h->score > score) {
+		mpz_set(h->x, x);
+		mpz_set(h->y, y);
+		h->z = z;
+		h->score = score;
+		heapify(h, 0, heap->max_entries);
+	}
+}
+
+/*-------------------------------------------------------------------------*/
 void
 root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 {
@@ -226,6 +289,7 @@ root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 	curr_poly_t *c = &s->curr_poly;
 
 	rs->root_heap.extra = data; /* FIXME */
+	rs->root_heap.num_entries = 0;
 	rs->max_norm = data->max_norm * exp(-alpha_proj);
 	rs->dbl_p = mpz_get_d(c->gmp_p);
 	rs->dbl_d = mpz_get_d(c->gmp_d);
@@ -237,5 +301,10 @@ root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 
 	sieve_xy_run(rs);
 
+	for (i = 0; i < rs->root_heap.num_entries; i++) {
+		mp_rotation_t *r = rs->root_heap.mp_entries + i;
+
+		optimize_final(r->x, r->y, r->z, data);
+	}
 	exit(-1);
 }

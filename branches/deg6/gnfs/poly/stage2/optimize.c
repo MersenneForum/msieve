@@ -485,8 +485,6 @@ optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data)
 	if (stage2_root_score(deg, c->gmp_b, data->murphy_p_bound, &alpha, 0))
 		return;
 
-	printf("%le\n", alpha);
-
 	if (alpha > -4.5)
 		return;
 

@@ -14,10 +14,8 @@ $Id$
 
 #include "stage2.h"
 
-#define ROOT_HEAP_SIZE 1000
 #define LATTICE_HEAP_SIZE 20
 #define MAX_SIEVE_PRIME_POWER 1000
-#define LOG_SCALE_FACTOR 1000
 #define ROOT_SCORE_COARSE_MIN (-4.0)
 
 static const double good_alpha[3][3] = {
@@ -959,6 +957,13 @@ void root_sieve_init(root_sieve_t *rs)
 	rs->root_heap.max_entries = ROOT_HEAP_SIZE;
 	rs->root_heap.entries = (rotation_t *)xmalloc(ROOT_HEAP_SIZE * 
 							sizeof(rotation_t));
+	rs->root_heap.mp_entries = (mp_rotation_t *)xmalloc(ROOT_HEAP_SIZE * 
+							sizeof(mp_rotation_t));
+	for (i = 0; i < ROOT_HEAP_SIZE; i++) {
+		mpz_init(rs->root_heap.mp_entries[i].x);
+		mpz_init(rs->root_heap.mp_entries[i].y);
+	}
+
 	rs->lattice_heap.max_entries = LATTICE_HEAP_SIZE;
 	rs->lattice_heap.entries = (rotation_t *)xmalloc(LATTICE_HEAP_SIZE * 
 							sizeof(rotation_t));
@@ -1035,6 +1040,10 @@ void root_sieve_free(root_sieve_t *rs)
 
 	mpz_clear(rs->root_heap.x);
 	mpz_clear(rs->root_heap.y);
+	for (i = 0; i < ROOT_HEAP_SIZE; i++) {
+		mpz_clear(rs->root_heap.mp_entries[i].x);
+		mpz_clear(rs->root_heap.mp_entries[i].y);
+	}
 
 	for (i = 0; i < rs->num_primes; i++) {
 		sieve_prime_t *prime = rs->primes + i;
@@ -1046,6 +1055,7 @@ void root_sieve_free(root_sieve_t *rs)
 	}
 	free(rs->primes);
 	free(rs->root_heap.entries);
+	free(rs->root_heap.mp_entries);
 	free(rs->lattice_heap.entries);
 	free(rs->tmp_lattice_heap.entries);
 	aligned_free(rs->sieve_block);
