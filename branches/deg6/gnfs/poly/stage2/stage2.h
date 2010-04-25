@@ -263,7 +263,7 @@ void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
 void sieve_xyz_run(root_sieve_t *rs);
 void sieve_xy_run(root_sieve_t *rs);
 void sieve_x_run(root_sieve_t *rs);
-void sieve_line_run(root_sieve_t *rs);
+void root_sieve_line(root_sieve_t *rs);
 void save_mp_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
 		int64 z, float score);
 
