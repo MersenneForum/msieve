@@ -50,7 +50,8 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 		if (num_lattice_primes == MAX_CRT_FACTORS)
 			break;
 
-		if (lattice_size_xyz % curr_prime->prime == 0)
+		if (curr_prime->powers[0].num_roots == 0 ||
+		    lattice_size_xyz % curr_prime->prime == 0)
 			continue;
 
 		if (curr_size * curr_prime->prime >= target_size)
