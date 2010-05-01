@@ -33,6 +33,15 @@ handle_collision(poly_search_t *poly, uint32 which_poly,
 	uint64_2gmp(p, poly->tmp1);
 	uint64_2gmp(q, poly->tmp2);
 
+#if 0
+	printf("p %" PRIx64 "\n", p);
+	printf("q %" PRIx64 "\n", q);
+	printf("proot %08x %08x %08x %08x\n", proot.w[0],
+       		proot.w[1], proot.w[2], proot.w[3]);
+	printf("res %08x %08x %08x %08x\n", res.w[0],
+        	res.w[1], res.w[2], res.w[3]);
+#endif
+
 	mpz_gcd(poly->tmp3, poly->tmp1, c->high_coeff);
 	if (mpz_cmp_ui(poly->tmp3, 1))
 		return;
@@ -102,12 +111,16 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly,
 	curr_poly_t *middle_poly;
 	curr_poly_t *last_poly;
 
-#if 1
+#if 0  /* sample hit for RSA200 with a6=180 */
 	uint128 proot = {{0x38519a31, 0x14070b4f}};
 	uint128 res = {{0x03164d7a}};
 	handle_collision(poly, 0, 0xb33252a7, proot, res, 0xc927a62b);
+#elif 1  /* sample hit for RSA768 with a6=1000020 */
+	uint128 proot = {{0xfd9b9e86, 0x7d8c9fc1, 0x00000358}};
+	uint128 res = {{0xe1154cf0, 0x00002bfc}};
+	handle_collision(poly, 0, 255182365381ULL, 
+			proot, res, 2165336843461ULL);
 #endif
-
 
 	middle_poly = poly->batch + poly->num_poly / 2;
 	last_poly = poly->batch + poly->num_poly - 1;

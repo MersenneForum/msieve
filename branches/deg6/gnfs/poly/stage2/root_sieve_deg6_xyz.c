@@ -18,7 +18,11 @@ $Id$
 static uint64
 find_lattice_size(double line_length)
 {
-	return (uint64)2*2*2*2*2*3*3*3*5*5*7;
+	if (line_length < 1e6)
+		return (uint64)2*2*2*2*2*3*3*3*5*5*7;
+	else if (line_length < 1e9)
+		return (uint64)2*2*2*2*2*3*3*3*5*5*7*11;
+	return (uint64)2*2*2*2*2*3*3*3*5*5*7*11*13;
 }
 
 /*-------------------------------------------------------------------------*/

@@ -121,8 +121,6 @@ root_sieve_x(root_sieve_t *rs, xdata_t *xdata,
 			x->last_line_min, x->last_line_max,
 			&line_min, &line_max);
 
-	printf("%le %le\n", line_min, line_max);
-
 	mpz_set_d(x->tmp1, x->scale_factor * line_min);
 	mpz_tdiv_q(x->x_base, x->tmp1, x->mp_lattice_size);
 	mpz_mul(x->x_base, x->x_base, x->mp_lattice_size);
