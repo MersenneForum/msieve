@@ -305,7 +305,7 @@ static void enum_run(sieve_fb_t *s)
 
 	aprog_t *aprog = s->aprog_data.aprogs + p_enum->next_prime;
 	uint32 p = aprog->p;
-	float log_p = log((double)p);
+	uint64 cutoff = s->p_max / p;
 
 	uint32 power_limit = (uint32)(-1) / p;
 	uint32 num_powers;
@@ -322,21 +322,20 @@ static void enum_run(sieve_fb_t *s)
 
 		ss_t new_ss = curr_list->list[i];
 
-		if (new_ss.log_prod > p_enum->log_p_min ||
+		if (new_ss.prod > s->p_min ||
 		    new_ss.num_factors == MAX_P_FACTORS ||
-		    new_ss.log_prod + log_p > p_enum->log_p_max)
+		    new_ss.prod > cutoff)
 			continue;
 
 		add_to_enum(new_list, new_ss);
 
 		new_ss.num_factors++;
 		for (j = 0; j < num_powers; j++) {
-			if (new_ss.log_prod + log_p > p_enum->log_p_max)
-				break;
-
 			new_ss.prod *= p;
-			new_ss.log_prod += log_p;
 			add_to_enum(new_list, new_ss);
+
+			if (new_ss.prod > cutoff)
+				break;
 		}
 	}
 
@@ -367,14 +366,11 @@ sieve_fb_reset(sieve_fb_t *s, uint64 p_min, uint64 p_max,
 
 		s->curr_algo = ALGO_ENUM;
 
-		p_enum->log_p_min = log((double)p_min);
-		p_enum->log_p_max = log((double)p_max);
 		p_enum->next_prime = 0;
 		p_enum->curr_entry = 0;
 
 		p_enum->curr_list.num_entries = 1;
 		p_enum->curr_list.list[0].num_factors = 0;
-		p_enum->curr_list.list[0].log_prod = 0;
 		p_enum->curr_list.list[0].prod = 1;
 	}
 	else {
@@ -621,9 +617,11 @@ get_next_composite(sieve_fb_t *s)
 		uint32 curr_offset;
 		p_sieve_t *p_sieve = &s->p_sieve;
 		uint8 *sieve_block = p_sieve->sieve_block;
+		uint32 cutoff = MIN(SIEVE_SIZE,
+		    		    (s->p_max - p_sieve->sieve_start + 1) / 2);
 
 		for (curr_offset = p_sieve->curr_offset; 
-				curr_offset < SIEVE_SIZE; curr_offset++) {
+				curr_offset < cutoff; curr_offset++) {
 
 			if (!(sieve_block[curr_offset] & 0x80)) 
 				continue;
@@ -632,11 +630,11 @@ get_next_composite(sieve_fb_t *s)
 			return p_sieve->sieve_start + (2 * curr_offset + 1);
 		}
 
-		sieve_run(s);
 		p_sieve->sieve_start += 2 * SIEVE_SIZE;
 		p_sieve->curr_offset = curr_offset = 0;
-		if (p_sieve->sieve_start > s->p_max)
+		if (p_sieve->sieve_start >= s->p_max)
 			break;
+		sieve_run(s);
 	}
 
 	return P_SEARCH_DONE;
@@ -658,7 +656,7 @@ get_next_enum_composite(sieve_fb_t *s)
 
 			ss_t *curr_prod = list + curr_entry;
 
-			if (curr_prod->log_prod > p_enum->log_p_min) {
+			if (curr_prod->prod > s->p_min) {
 				p_enum->curr_entry = curr_entry + 1;
 				return curr_prod->prod;
 			}
