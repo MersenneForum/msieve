@@ -98,7 +98,6 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 				hits->score[k] = sieve[j] * contrib;
 				hits->roots[k][0] = j % p;
 				hits->roots[k][1] = j / p;
-				hits->roots[k][2] = 0;
 				k++;
 			}
 		}
@@ -111,7 +110,7 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 	num_lattices = MIN(num_lattices, MAX_XY_LATTICES);
 
 	compute_lattices(hitlist, num_lattice_primes,
-			lattices_xy, xy->lattice_size, num_lattices);
+			lattices_xy, xy->lattice_size, num_lattices, 2);
 
 	xy->apoly = rs->apoly;
 	xy->apoly.coeff[3] += z_base * rs->dbl_p;

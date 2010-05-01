@@ -137,22 +137,18 @@ compute_line_size_deg6(double max_norm, dpoly_t *apoly,
 #define CRT_ACCUM(idx)						\
 	crt_score[idx] = crt_score[(idx)+1] +                   \
 				hitlist[idx].score[i##idx];	\
-	crt_accum[idx][0] = crt_accum[(idx)+1][0] + 		\
+	for (j = 0; j < dim; j++) {				\
+		crt_accum[idx][j] = crt_accum[(idx)+1][j] +	\
 				crt_prod[idx] * 		\
-				hitlist[idx].roots[i##idx][0];	\
-	crt_accum[idx][1] = crt_accum[(idx)+1][1] + 		\
-				crt_prod[idx] * 		\
-				hitlist[idx].roots[i##idx][1];	\
-	crt_accum[idx][2] = crt_accum[(idx)+1][2] + 		\
-				crt_prod[idx] * 		\
-				hitlist[idx].roots[i##idx][2];	
+				hitlist[idx].roots[i##idx][j];	\
+	}
 
 void
 compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
-		   lattice_t *lattices, uint64 lattice_size_xyz,
-		   uint32 num_lattices)
+		   lattice_t *lattices, uint64 lattice_size,
+		   uint32 num_lattices, uint32 dim)
 {
-	uint32 i;
+	uint32 i, j;
 	int32 i0, i1, i2, i3, i4, i5, i6, i7, i8, i9;
 	uint64 crt_prod[MAX_CRT_FACTORS];
 	uint64 crt_accum[MAX_CRT_FACTORS + 1][3];
@@ -162,15 +158,15 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 		hit_t *hits = hitlist + i;
 		uint32 p = hits->power;
 
-		crt_prod[i] = lattice_size_xyz / p;
+		crt_prod[i] = lattice_size / p;
 		crt_prod[i] *= mp_modinv_1((uint32)(crt_prod[i] % p), p);
 	}
 
 	i0 = i1 = i2 = i3 = i4 = i5 = i6 = i7 = i8 = i9 = i = 0;
+	crt_score[num_lattice_primes] = 0;
 	crt_accum[num_lattice_primes][0] = 0;
 	crt_accum[num_lattice_primes][1] = 0;
 	crt_accum[num_lattice_primes][2] = 0;
-	crt_score[num_lattice_primes] = 0;
 
 	switch (num_lattice_primes) {
 	case 10:
@@ -208,9 +204,11 @@ compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 				return;
 
 			lattices[i].score = crt_score[0];
-			lattices[i].x = crt_accum[0][0] % lattice_size_xyz;
-			lattices[i].y = crt_accum[0][1] % lattice_size_xyz;
-			lattices[i].z = crt_accum[0][2] % lattice_size_xyz;
+			lattices[i].x = crt_accum[0][0] % lattice_size;
+			if (dim > 1)
+				lattices[i].y = crt_accum[0][1] % lattice_size;
+			if (dim > 2)
+				lattices[i].z = crt_accum[0][2] % lattice_size;
 			i++;
 		}}}}}}}}}}
 	}
@@ -308,7 +306,6 @@ root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 	for (i = 0; i < rs->root_heap.num_entries; i++) {
 		mp_rotation_t *r = rs->root_heap.mp_entries + i;
 
-		gmp_printf("%+30Zd\t%+20Zd\t%+" PRId64 "\n", r->x, r->y, r->z);
 		optimize_final(r->x, r->y, r->z, data);
 	}
 	exit(-1);

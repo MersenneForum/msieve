@@ -146,7 +146,7 @@ typedef struct {
 
 void compute_lattices(hit_t *hitlist, uint32 num_lattice_primes,
 			lattice_t *lattices, uint64 lattice_size,
-			uint32 num_lattices);
+			uint32 num_lattices, uint32 dim);
 void compute_line_size_deg6(double max_norm, dpoly_t *apoly,
 		  double dbl_p, double dbl_d, double direction[3],
 		  double last_line_min_in, double last_line_max_in,

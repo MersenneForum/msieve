@@ -96,8 +96,6 @@ root_sieve_x(root_sieve_t *rs, xdata_t *xdata,
 			if (sieve[j] >= max_sieve_val) {
 				hits->score[k] = sieve[j] * contrib;
 				hits->roots[k][0] = j;
-				hits->roots[k][1] = 0;
-				hits->roots[k][2] = 0;
 				k++;
 			}
 		}
@@ -110,7 +108,7 @@ root_sieve_x(root_sieve_t *rs, xdata_t *xdata,
 	num_lattices = MIN(num_lattices, MAX_X_LATTICES);
 
 	compute_lattices(hitlist, num_lattice_primes,
-			lattices_x, x->lattice_size, num_lattices);
+			lattices_x, x->lattice_size, num_lattices, 1);
 
 	mpz_add(rs->curr_y, xy->y_base, xy->resclass_y);
 	mpz_addmul_ui(rs->curr_y, xy->mp_lattice_size, which_yblock);
@@ -122,6 +120,8 @@ root_sieve_x(root_sieve_t *rs, xdata_t *xdata,
 			rs->dbl_p, rs->dbl_d, direction,
 			x->last_line_min, x->last_line_max,
 			&line_min, &line_max);
+
+	printf("%le %le\n", line_min, line_max);
 
 	mpz_set_d(x->tmp1, x->scale_factor * line_min);
 	mpz_tdiv_q(x->x_base, x->tmp1, x->mp_lattice_size);

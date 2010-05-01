@@ -213,7 +213,7 @@ sieve_xyz_run(root_sieve_t *rs)
 	xyz->num_lattices = num_lattices;
 
 	compute_lattices(hitlist, num_lattice_primes, xyz->lattices,
-			lattice_size, num_lattices);
+			lattice_size, num_lattices, 3);
 
 	line_min = -10000;
 	line_max = 10000;
