@@ -367,6 +367,7 @@ sieve_xy_run(root_sieve_t *rs)
 {
 	uint32 i;
 
+	poly_stage2_t *data = (poly_stage2_t *)rs->root_heap.extra;
 	sieve_xyz_t *xyz = &rs->xyzdata;
 	int64 z_base = xyz->z_base;
 
@@ -415,6 +416,9 @@ sieve_xy_run(root_sieve_t *rs)
 
 		find_hits(rs, xydata, num_lattice_primes, 
 				curr_lattice_xyz);
+
+		if (data->obj->flags & MSIEVE_FLAG_STOP_SIEVING)
+			break;
 	}
 
 	xydata_free(xydata, num_lattice_primes);

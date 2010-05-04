@@ -126,8 +126,8 @@ static const poly_param_t prebuilt_params_deg6[] = {
 
  	{200, 1.00E+026, 1.00E+030, 8.0e-018},
  	{205, 1.00E+027, 1.00E+031, 6.0e-019},
- 	{230, 3.00E+030, 1.00E+036, 6.0e-019},
- 	{235, 1.50E+031, 1.00E+037, 6.0e-019},
+ 	{230, 3.00E+029, 1.00E+036, 6.0e-019},
+ 	{235, 1.50E+030, 1.00E+037, 6.0e-019},
 };
 
 /*--------------------------------------------------------------------*/
@@ -292,7 +292,7 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 
 	poly_stage1_init(&stage1_data, stage1_callback, &stage2_data);
 
-	poly_stage2_init(&stage2_data, stage2_callback, 
+	poly_stage2_init(&stage2_data, obj, stage2_callback, 
 			&stage2_callback_data);
 
 	/* get poly selection parameters */

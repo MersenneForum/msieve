@@ -50,6 +50,8 @@ typedef void (*stage2_callback_t)(void *extra, uint32 deg,
 				double root_score, double combined_score);
 
 typedef struct {
+	msieve_obj *obj;
+
 	mpz_t gmp_N;
 	uint32 degree;
 	uint32 murphy_p_bound;
@@ -63,7 +65,7 @@ typedef struct {
 	void *callback_data;
 } poly_stage2_t;
 
-void poly_stage2_init(poly_stage2_t *data,
+void poly_stage2_init(poly_stage2_t *data, msieve_obj *obj,
 		      stage2_callback_t callback,
 		      void *callback_data);
 void poly_stage2_free(poly_stage2_t *data);

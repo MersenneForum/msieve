@@ -196,11 +196,13 @@ curr_poly_free(curr_poly_t *c)
 /*-------------------------------------------------------------------------*/
 void
 poly_stage2_init(poly_stage2_t *data, 
+		 msieve_obj *obj,
 		 stage2_callback_t callback,
 		 void *callback_data)
 {
 	memset(data, 0, sizeof(poly_stage2_t));
 	mpz_init(data->gmp_N);
+	data->obj = obj;
 	data->murphy_p_bound = 2000;
 	data->callback = callback;
 	data->callback_data = callback_data;
