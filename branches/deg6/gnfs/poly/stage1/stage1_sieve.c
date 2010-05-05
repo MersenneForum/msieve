@@ -33,7 +33,7 @@ handle_collision(poly_search_t *poly, uint32 which_poly,
 	uint64_2gmp(p, poly->tmp1);
 	uint64_2gmp(q, poly->tmp2);
 
-#if 1
+#if 0
 	printf("p %" PRIx64 "\n", p);
 	printf("q %" PRIx64 "\n", q);
 	printf("proot %08x %08x %08x %08x\n", proot.w[0],
@@ -122,7 +122,7 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly,
 	handle_collision(poly, 0, 255182365381ULL, 
 			proot, res, 2165336843461ULL);
 
-#elif 1  /* sample hit for RSA768 with a6=10000080 */
+#elif 0  /* sample hit for RSA768 with a6=10000080 */
 	uint128 proot = {{0xc7fcfa0a, 0x18f160f8, 0x00000001}};
 	uint128 res = {{0x2a91df0e, 0x00000156}};
 	handle_collision(poly, 0, 5311555261ULL,

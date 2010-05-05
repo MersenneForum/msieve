@@ -207,6 +207,16 @@ static void stage1_callback(mpz_t high_coeff, mpz_t p, mpz_t m,
 }
 
 /*------------------------------------------------------------------*/
+static void stage1_callback_log(mpz_t high_coeff, mpz_t p, mpz_t m, 
+				double coeff_bound, void *extra) {
+	
+	FILE *mfile = (FILE *)extra;
+	gmp_fprintf(mfile, "%Zd %Zd %Zd\n",
+			high_coeff, p, m);
+	fflush(mfile);
+}
+
+/*------------------------------------------------------------------*/
 static void
 stage2_callback(void *extra, uint32 degree, 
 		mpz_t * coeff1, mpz_t * coeff2,
@@ -272,34 +282,23 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 			poly_config_t *config,
 			uint32 degree, uint32 deadline) {
 
-	double dbl_N, digits;
 	poly_stage1_t stage1_data;
 	poly_stage2_t stage2_data;
-	poly_param_t params;
 	stage2_callback_data_t stage2_callback_data;
-	double coeff_scale = 30.0;
+	poly_param_t params;
 	char buf[256];
+	FILE *stage1_outfile = NULL;
+	uint32 do_both_stages = 0;
+	double digits;
+	double coeff_scale = 30.0;
 
-	/* initialize structures */
+	if ((obj->flags & MSIEVE_FLAG_NFS_POLY1) &&
+	    (obj->flags & MSIEVE_FLAG_NFS_POLY2))
+		do_both_stages = 1;
 
-	sprintf(buf, "%s.p", obj->savefile.name);
-	
-	stage2_callback_data.config = config;
-	if ( (stage2_callback_data.all_poly_file = fopen(buf, "a")) == NULL) {
-		printf("error: cannot open all-poly file\n");
-		exit(-1);
-	}
+	/* get poly select parameters */
 
-	poly_stage1_init(&stage1_data, stage1_callback, &stage2_data);
-
-	poly_stage2_init(&stage2_data, obj, stage2_callback, 
-			&stage2_callback_data);
-
-	/* get poly selection parameters */
-
-	mp2gmp(n, stage1_data.gmp_N);
-	dbl_N = mpz_get_d(stage1_data.gmp_N);
-	digits = log(dbl_N) / log(10.0);
+	digits = mp_log(n) / log(10.0);
 
 	switch (degree) {
 	case 4:
@@ -326,47 +325,127 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 		exit(-1);
 	}
 
-	/* fill stage 1 data */
+	/* set up stage 1 */
 
-	stage1_data.degree = degree;
-	stage1_data.norm_max = params.stage1_norm;
-	stage1_data.deadline = deadline;
+	if (obj->flags & MSIEVE_FLAG_NFS_POLY1) {
 
-	if (obj->nfs_lower)
-		uint64_2gmp(obj->nfs_lower, 
-				stage1_data.gmp_high_coeff_begin);
-	else
-		mpz_set_ui(stage1_data.gmp_high_coeff_begin, (mp_limb_t)1);
+		/* if we're doing both stage 1 and 2, every hit
+		   in stage 1 is immediately forwarded to stage 2.
+		   For stage 1 alone, all the stage 1 hits are buffered
+		   to file first */
 
-	if (obj->nfs_upper)
-		uint64_2gmp(obj->nfs_upper, 
-				stage1_data.gmp_high_coeff_end);
-	else
-		mpz_set_d(stage1_data.gmp_high_coeff_end,
-			pow(dbl_N, 1.0 / (double)(degree * 
-					(degree - 1))) / coeff_scale );
+		if (do_both_stages) {
+			poly_stage1_init(&stage1_data, 
+					stage1_callback, &stage2_data);
+		}
+		else {
+			sprintf(buf, "%s.m", obj->savefile.name);
+			stage1_outfile = fopen(buf, "a");
+			if (stage1_outfile == NULL) {
+				printf("error: cannot open poly1 file\n");
+				exit(-1);
+			}
+			poly_stage1_init(&stage1_data, stage1_callback_log, 
+					stage1_outfile);
+		}
 
-	if (obj->nfs_lower && obj->nfs_upper)
-		stage1_data.deadline = 0;
+		/* fill stage 1 data */
 
-	logprintf(obj, "searching leading coefficients from %.0lf to %.0lf\n",
-			mpz_get_d(stage1_data.gmp_high_coeff_begin),
-			mpz_get_d(stage1_data.gmp_high_coeff_end));
+		mp2gmp(n, stage1_data.gmp_N);
+		stage1_data.degree = degree;
+		stage1_data.norm_max = params.stage1_norm;
+		stage1_data.deadline = deadline;
 
-	/* fill stage 2 data */
+		if (obj->nfs_lower)
+			uint64_2gmp(obj->nfs_lower, 
+					stage1_data.gmp_high_coeff_begin);
+		else
+			mpz_set_ui(stage1_data.gmp_high_coeff_begin, 
+					(unsigned long)1);
 
-	mp2gmp(n, stage2_data.gmp_N);
-	stage2_data.degree = degree;
-	stage2_data.max_norm = params.stage2_norm;
-	stage2_data.min_e = params.final_norm;
-	stage2_data.min_e_bernstein = params.final_norm / 
-				get_bernstein_mult(digits, degree);
+		if (obj->nfs_upper)
+			uint64_2gmp(obj->nfs_upper, 
+					stage1_data.gmp_high_coeff_end);
+		else
+			mpz_set_d(stage1_data.gmp_high_coeff_end,
+				pow(mpz_get_d(stage1_data.gmp_N), 1.0 / 
+					(double)(degree * (degree - 1))) / 
+				coeff_scale );
 
-	poly_stage1_run(obj, &stage1_data);
+		if (obj->nfs_lower && obj->nfs_upper)
+			stage1_data.deadline = 0;
 
-	fclose(stage2_callback_data.all_poly_file);
-	poly_stage1_free(&stage1_data);
-	poly_stage2_free(&stage2_data);
+		logprintf(obj, "searching leading coefficients from "
+				"%.0lf to %.0lf\n",
+				mpz_get_d(stage1_data.gmp_high_coeff_begin),
+				mpz_get_d(stage1_data.gmp_high_coeff_end));
+	}
+
+	/* set up stage 2 */
+
+	if (obj->flags & MSIEVE_FLAG_NFS_POLY2) {
+
+		poly_stage2_init(&stage2_data, obj, stage2_callback, 
+				&stage2_callback_data);
+
+		/* fill stage 2 data */
+
+		mp2gmp(n, stage2_data.gmp_N);
+		stage2_data.degree = degree;
+		stage2_data.max_norm = params.stage2_norm;
+		stage2_data.min_e = params.final_norm;
+		stage2_data.min_e_bernstein = params.final_norm / 
+					get_bernstein_mult(digits, degree);
+
+		sprintf(buf, "%s.p", obj->savefile.name);
+		stage2_callback_data.config = config;
+		stage2_callback_data.all_poly_file = fopen(buf, "a");
+		if (stage2_callback_data.all_poly_file == NULL) {
+			printf("error: cannot open poly2 file\n");
+			exit(-1);
+		}
+	}
+
+
+	if (do_both_stages) {
+		poly_stage1_run(obj, &stage1_data);
+
+		fclose(stage2_callback_data.all_poly_file);
+		poly_stage1_free(&stage1_data);
+		poly_stage2_free(&stage2_data);
+	}
+	else if (obj->flags & MSIEVE_FLAG_NFS_POLY1) {
+		poly_stage1_run(obj, &stage1_data);
+		fclose(stage1_outfile);
+		poly_stage1_free(&stage1_data);
+	}
+	else if (obj->flags & MSIEVE_FLAG_NFS_POLY2) {
+		mpz_t ad, p, m;
+
+		mpz_init(ad);
+		mpz_init(p);
+		mpz_init(m);
+
+		sprintf(buf, "%s.m", obj->savefile.name);
+		stage1_outfile = fopen(buf, "r");
+		if (stage1_outfile == NULL) {
+			printf("error: cannot open poly2 input file\n");
+			exit(-1);
+		}
+
+		while(gmp_fscanf(stage1_outfile, "%Zd %Zd %Zd",
+					ad, p, m) == 3) {
+
+			poly_stage2_run(&stage2_data, ad, p, m, 1e100);
+		}
+
+		mpz_clear(ad);
+		mpz_clear(p);
+		mpz_clear(m);
+		fclose(stage1_outfile);
+		fclose(stage2_callback_data.all_poly_file);
+		poly_stage2_free(&stage2_data);
+	}
 }
 
 /*------------------------------------------------------------------*/

@@ -1,4 +1,7 @@
 Version 1.46:
+	- NFS poly selection changes:
+		- Allowed stage 1 and stage 2 to be run separately,
+		  with stage 1 output saved to file and read back in stage 2
 
 
 Version 1.45: 4/21/10
