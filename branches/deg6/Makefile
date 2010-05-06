@@ -94,6 +94,7 @@ COMMON_SRCS = \
 	common/hashtable.c \
 	common/integrate.c \
 	common/minimize.c \
+	common/minimize_global.c \
 	common/mp.c \
 	common/polyroot.c \
 	common/prime_delta.c \

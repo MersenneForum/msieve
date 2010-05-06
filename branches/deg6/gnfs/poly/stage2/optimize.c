@@ -307,8 +307,30 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	best[ROTATE0] = 0;
 	best[ROTATE1] = 0;
 	best[ROTATE2] = 0;
-
 	score = 1e100;
+
+	if (deg == 6 || 
+	    (deg == 5 && fabs(rpoly.coeff[0]) > 1e28)) {
+
+		/* do global optimization first */
+
+		double curr_skew = best[SKEWNESS];
+		double limits[MAX_VARS][2];
+
+		limits[TRANSLATE_SIZE][0] = -100 * curr_skew;
+		limits[TRANSLATE_SIZE][1] = 100 * curr_skew;
+		limits[SKEWNESS][0] = MAX(1000, 0.1 * curr_skew);
+		limits[SKEWNESS][1] = 100 * curr_skew;
+		for (i = 0; i <= rotate_dim; i++) {
+			limits[ROTATE0 + i][0] = -10 * pow(curr_skew, (rotate_dim - i) + 0.5);
+			limits[ROTATE0 + i][1] = 10 * pow(curr_skew, (rotate_dim - i) + 0.5);
+		}
+
+		score = minimize_global(best, rotate_dim + 3,
+				limits, 0.01, 1000000, poly_rotate_callback,
+				&opt_data);
+	}
+
 	do {
 		last_score = score;
 		score = minimize(best, rotate_dim + 3, 1e-5, 40, 
@@ -336,7 +358,7 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	} while (fabs(score - last_score) > .001 * fabs(score));
 
 	*pol_norm = sqrt(fabs(score));
-#if 0
+#if 1
 	printf("norm %.7e skew %lf\n", *pol_norm, best[SKEWNESS]);
 	for (i = 0; i < 2; i++)
 		gmp_printf("%+Zd\n", c->gmp_lina[i]);
