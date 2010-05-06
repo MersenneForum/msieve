@@ -260,8 +260,9 @@ stage2_callback(void *extra, uint32 degree,
 			num_real_roots);
 
 	fprintf(data->all_poly_file, 
-		"# norm %le alpha %lf e %.3le\nskew: %.2lf\n", 
-		size_score, root_score, combined_score, skewness);
+		"# norm %le alpha %lf e %.3le rroots %u\nskew: %.2lf\n", 
+		size_score, root_score, combined_score, 
+		num_real_roots, skewness);
 	for (i = 0; i <= degree; i++) {
 		fprintf(data->all_poly_file, "c%u: %s", i,
 				mpz_sgn(coeff1[i]) >= 0 ? " " : "");
