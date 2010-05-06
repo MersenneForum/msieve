@@ -196,6 +196,8 @@ typedef struct {
 	dickman_t *dickman_aux;
 	double root_score_r;
 	double root_score_a;
+
+	uint32 num_real_roots;
 } opt_data_t;
 
 static double poly_xlate_callback(double *v, void *extra)
@@ -259,7 +261,7 @@ static double poly_murphy_callback(double *v, void *extra)
 	analyze_poly_murphy(opt->integ_aux, opt->dickman_aux,
 				&new_rpoly, opt->root_score_r,
 				&new_apoly, opt->root_score_a,
-				s, &score);
+				s, &score, &opt->num_real_roots);
 
 	return -score;
 }
@@ -375,7 +377,8 @@ optimize_basic(dpoly_t *apoly, double *best_skewness,
 static void
 optimize_final_core(curr_poly_t *c, assess_t *assess, uint32 deg,
 			double root_score, double *best_score_out,
-			double *best_skewness_out)
+			double *best_skewness_out, 
+			uint32 *num_real_roots_out)
 {
 	uint32 i;
 	signed_mp_t tmp;
@@ -419,6 +422,7 @@ optimize_final_core(curr_poly_t *c, assess_t *assess, uint32 deg,
 
 	*best_score_out = fabs(score);
 	*best_skewness_out = best[SKEWNESS];
+	*num_real_roots_out = opt_data.num_real_roots;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -461,6 +465,7 @@ optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data)
 {
 	uint32 i;
 	uint32 deg = data->degree;
+	uint32 num_real_roots;
 	double alpha, skewness, bscore, combined_score;
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	curr_poly_t *c = &s->curr_poly;
@@ -498,7 +503,8 @@ optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data)
 	if (bscore > data->min_e_bernstein) {
 
 		optimize_final_core(c, assess, deg, alpha, 
-				&combined_score, &skewness);
+				&combined_score, &skewness,
+				&num_real_roots);
 
 #if 0
 		printf("combined %le ratio %lf\n", combined_score,
@@ -507,7 +513,7 @@ optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data)
 		if (combined_score > data->min_e) {
 			data->callback(data->callback_data, deg, c->gmp_b, 
 					c->gmp_linb, skewness, bscore,
-					alpha, combined_score);
+					alpha, combined_score, num_real_roots);
 		}
 	}
 }

@@ -221,7 +221,8 @@ static void
 stage2_callback(void *extra, uint32 degree, 
 		mpz_t * coeff1, mpz_t * coeff2,
 		double skewness, double size_score,
-		double root_score, double combined_score)
+		double root_score, double combined_score,
+		uint32 num_real_roots)
 {
 	uint32 i;
 	poly_select_t poly;
@@ -254,8 +255,9 @@ stage2_callback(void *extra, uint32 degree,
 	poly.combined_score = combined_score;
 	poly.skewness = skewness;
 
-	printf("save %le %lf %lf %le\n", size_score,
-			root_score, skewness, combined_score);
+	printf("save %le %.4lf %.2lf %le rroots %u\n", size_score,
+			root_score, skewness, combined_score,
+			num_real_roots);
 
 	fprintf(data->all_poly_file, 
 		"# norm %le alpha %lf e %.3le\nskew: %.2lf\n", 
