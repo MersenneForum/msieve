@@ -308,7 +308,7 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	best[ROTATE1] = 0;
 	best[ROTATE2] = 0;
 	score = 1e100;
-
+#if 0
 	if (deg == 6 || 
 	    (deg == 5 && fabs(rpoly.coeff[0]) > 1e28)) {
 
@@ -322,14 +322,17 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 		limits[SKEWNESS][0] = MAX(1000, 0.1 * curr_skew);
 		limits[SKEWNESS][1] = 100 * curr_skew;
 		for (i = 0; i <= rotate_dim; i++) {
-			limits[ROTATE0 + i][0] = -10 * pow(curr_skew, (rotate_dim - i) + 0.5);
-			limits[ROTATE0 + i][1] = 10 * pow(curr_skew, (rotate_dim - i) + 0.5);
+			limits[ROTATE0 + i][0] = -10 * pow(curr_skew, 
+					(rotate_dim - i) + 0.5);
+			limits[ROTATE0 + i][1] = 10 * pow(curr_skew, 
+					(rotate_dim - i) + 0.5);
 		}
 
 		score = minimize_global(best, rotate_dim + 3,
 				limits, 0.01, 1000000, poly_rotate_callback,
 				&opt_data);
 	}
+#endif
 
 	do {
 		last_score = score;
