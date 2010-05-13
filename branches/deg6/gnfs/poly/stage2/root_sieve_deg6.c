@@ -279,7 +279,8 @@ save_mp_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
 
 /*-------------------------------------------------------------------------*/
 void
-root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
+root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
+			double alpha_proj)
 {
 	uint32 i;
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
@@ -288,17 +289,15 @@ root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj)
 
 	rs->root_heap.extra = data; /* FIXME */
 	rs->root_heap.num_entries = 0;
-	rs->max_norm = data->max_norm * exp(-alpha_proj);
+	rs->max_norm = exp(-alpha_proj) * MIN(curr_norm * 1.10,
+						data->max_norm);
 	rs->dbl_p = mpz_get_d(c->gmp_p);
 	rs->dbl_d = mpz_get_d(c->gmp_d);
 	rs->apoly.degree = data->degree;
 	for (i = 0; i <= data->degree; i++)
 		rs->apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 
-	rs->xyzdata.scale_factor = 0.01;
-	rs->xydata.scale_factor = 0.01;
-	rs->xydata.num_roots_min = 5;
-	rs->xdata.scale_factor = 0.001;
+	rs->xydata.num_roots_min = 4;
 	rs->xdata.num_roots_min = 5;
 	sieve_xyz_run(rs);
 	sieve_xy_run(rs);

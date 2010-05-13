@@ -18,9 +18,15 @@ $Id$
 static uint64
 find_lattice_size(double line_length)
 {
-	if (line_length < 1e6)
+	if (line_length < 1e3)
+		return 1;
+	else if (line_length < 1e4)
+		return (uint64)2*2*3*5;
+	else if (line_length < 1e6)
+		return (uint64)2*2*2*3*3*5*7;
+	else if (line_length < 1e8)
 		return (uint64)2*2*2*2*2*3*3*3*5*5*7;
-	else if (line_length < 1e9)
+	else if (line_length < 1e11)
 		return (uint64)2*2*2*2*2*3*3*3*5*5*7*11;
 	return (uint64)2*2*2*2*2*3*3*3*5*5*7*11*13;
 }
@@ -186,11 +192,11 @@ sieve_xyz_run(root_sieve_t *rs)
 			-10000, 10000, &line_min, &line_max);
 
 	lattice_size = xyz->lattice_size = 
-			find_lattice_size((line_max - line_min) / 100);
+			find_lattice_size(line_max - line_min);
 
-	xyz->z_base = xyz->scale_factor * line_min / lattice_size - 1;
+	xyz->z_base = line_min / lattice_size - 1;
 	xyz->z_base *= lattice_size;
-	z_blocks = xyz->scale_factor * (line_max - line_min) / lattice_size;
+	z_blocks = (line_max - line_min) / lattice_size;
 	if (z_blocks > xyz->z_blocks) {
 		xyz->y_line_min = (double *)xrealloc(xyz->y_line_min,
 						z_blocks * sizeof(double));
@@ -199,25 +205,42 @@ sieve_xyz_run(root_sieve_t *rs)
 	}
 	xyz->z_blocks = z_blocks;
 
-	num_lattice_primes = xyz->num_lattice_primes = 
-			find_lattice_primes(rs->primes, 
-					rs->num_primes, lattice_size, 
-					xyz->lattice_primes);
-
-	find_hits(xyz->lattice_primes, num_lattice_primes, hitlist);
-
-	for (i = 0, num_lattices = 1; i < num_lattice_primes; i++) {
-		num_lattices *= hitlist[i].num_roots;
-	}
-
-	if (num_lattices > xyz->num_lattices) {
-		xyz->lattices = (lattice_t *)xrealloc(xyz->lattices,
+	if (lattice_size == 1) {
+		num_lattice_primes = xyz->num_lattice_primes = 0;
+		num_lattices = 1;
+		if (num_lattices > xyz->num_lattices) {
+			xyz->lattices = (lattice_t *)xrealloc(xyz->lattices,
 					num_lattices * sizeof(lattice_t));
+		}
+		xyz->lattices[0].score = 0;
+		xyz->lattices[0].x = 0;
+		xyz->lattices[0].y = 0;
+		xyz->lattices[0].z = 0;
+	}
+	else {
+		num_lattice_primes = xyz->num_lattice_primes = 
+				find_lattice_primes(rs->primes, 
+						rs->num_primes, lattice_size, 
+						xyz->lattice_primes);
+
+		find_hits(xyz->lattice_primes, num_lattice_primes, hitlist);
+
+		for (i = 0, num_lattices = 1; i < num_lattice_primes; i++) {
+			num_lattices *= hitlist[i].num_roots;
+		}
+
+		if (num_lattices > xyz->num_lattices) {
+			xyz->lattices = (lattice_t *)xrealloc(xyz->lattices,
+					num_lattices * sizeof(lattice_t));
+		}
+
+		compute_lattices(hitlist, num_lattice_primes, xyz->lattices,
+				lattice_size, num_lattices, 3);
+
 	}
 	xyz->num_lattices = num_lattices;
 
-	compute_lattices(hitlist, num_lattice_primes, xyz->lattices,
-			lattice_size, num_lattices, 3);
+	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
 
 	line_min = -10000;
 	line_max = 10000;

@@ -160,8 +160,6 @@ typedef struct {
 	sieve_prime_t lattice_primes[MAX_CRT_FACTORS];
 	uint32 num_lattice_primes;
 
-	double scale_factor;
-
 	uint32 num_lattices;
 	lattice_t *lattices;
 
@@ -183,7 +181,6 @@ typedef struct {
 
 	dpoly_t apoly;
 
-	double scale_factor;
 	uint32 num_roots_min;
 
 	uint16 curr_score;
@@ -213,7 +210,6 @@ typedef struct {
 
 	dpoly_t apoly;
 
-	double scale_factor;
 	uint32 num_roots_min;
 
 	double last_line_min;
@@ -265,9 +261,11 @@ typedef struct {
 
 void root_sieve_init(root_sieve_t *rs);
 void root_sieve_free(root_sieve_t *rs);
-void root_sieve_run(poly_stage2_t *data, double alpha_proj);
+void root_sieve_run(poly_stage2_t *data, double curr_norm,
+				double alpha_proj);
 
-void root_sieve_run_deg6(poly_stage2_t *data, double alpha_proj);
+void root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
+				double alpha_proj);
 void sieve_xyz_run(root_sieve_t *rs);
 void sieve_xy_run(root_sieve_t *rs);
 void sieve_x_run(root_sieve_t *rs);

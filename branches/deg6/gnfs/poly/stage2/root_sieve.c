@@ -928,7 +928,7 @@ root_sieve_run_deg45(poly_stage2_t *data, double alpha_proj)
 
 /*-------------------------------------------------------------------------*/
 void
-root_sieve_run(poly_stage2_t *data, double alpha_proj)
+root_sieve_run(poly_stage2_t *data, double curr_norm, double alpha_proj)
 {
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	curr_poly_t *c = &s->curr_poly;
@@ -940,7 +940,7 @@ root_sieve_run(poly_stage2_t *data, double alpha_proj)
 	if (deg != 6)
 		root_sieve_run_deg45(data, alpha_proj);
 	else
-		root_sieve_run_deg6(data, alpha_proj);
+		root_sieve_run_deg6(data, curr_norm, alpha_proj);
 }
 
 /*-------------------------------------------------------------------------*/

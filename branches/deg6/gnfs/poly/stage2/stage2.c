@@ -277,7 +277,7 @@ poly_stage2_run(poly_stage2_t *data, mpz_t high_coeff, mpz_t p,
 		goto finished;
 
 	stage2_root_score(degree, c->gmp_a, 100, &alpha_proj, 1);
-	root_sieve_run(data, alpha_proj);
+	root_sieve_run(data, pol_norm, alpha_proj);
 
 finished:
 	if (precision_changed)
