@@ -274,6 +274,8 @@ root_sieve_line(root_sieve_t *rs)
 	uint32 num_primes = rs->num_primes;
 	uint16 *block = rs->sieve_block;
 
+//	printf("%u ", num_blocks); fflush(stdout);
+
 	prepare_sieve_lattice(rs);
 
 	line_heap.num_entries = 0;

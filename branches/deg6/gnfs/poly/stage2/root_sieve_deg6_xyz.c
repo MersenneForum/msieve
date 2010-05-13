@@ -240,7 +240,7 @@ sieve_xyz_run(root_sieve_t *rs)
 	}
 	xyz->num_lattices = num_lattices;
 
-	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
+//	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
 
 	line_min = -10000;
 	line_max = 10000;
