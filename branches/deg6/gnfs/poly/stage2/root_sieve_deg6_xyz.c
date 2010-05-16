@@ -187,9 +187,13 @@ sieve_xyz_run(root_sieve_t *rs)
 	double direction[3] = {0, 0, 1};
 	double line_min, line_max;
 
+	lattice_size = xyz->lattice_size = 1;
+	xyz->num_lattices = 0;
 	compute_line_size_deg6(rs->max_norm, &rs->apoly,
 			rs->dbl_p, rs->dbl_d, direction,
 			-10000, 10000, &line_min, &line_max);
+	if (line_min >= line_max)
+		return;
 
 	lattice_size = xyz->lattice_size = 
 			find_lattice_size(line_max - line_min);
@@ -240,7 +244,7 @@ sieve_xyz_run(root_sieve_t *rs)
 	}
 	xyz->num_lattices = num_lattices;
 
-//	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
+	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
 
 	line_min = -10000;
 	line_max = 10000;
