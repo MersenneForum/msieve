@@ -68,7 +68,7 @@ double optimize_basic(dpoly_t *apoly, double *best_skewness,
 /* data for the root sieve */
 
 #define MAX_SIEVE_PRIME 100
-#define ROOT_HEAP_SIZE 1000
+#define ROOT_HEAP_SIZE 200
 #define LOG_SCALE_FACTOR 1000
 
 typedef struct {
