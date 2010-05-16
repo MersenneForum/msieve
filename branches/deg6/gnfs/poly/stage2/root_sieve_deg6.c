@@ -289,8 +289,8 @@ root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
 
 	rs->root_heap.extra = data; /* FIXME */
 	rs->root_heap.num_entries = 0;
-	rs->max_norm = exp(-alpha_proj) * MIN(curr_norm * 1.10,
-						data->max_norm);
+	rs->max_norm = exp(-alpha_proj) * MIN(20 * curr_norm,
+					data->max_norm);
 	rs->dbl_p = mpz_get_d(c->gmp_p);
 	rs->dbl_d = mpz_get_d(c->gmp_d);
 	rs->apoly.degree = data->degree;
@@ -307,5 +307,4 @@ root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
 
 		optimize_final(r->x, r->y, r->z, data);
 	}
-	exit(-1);
 }
