@@ -160,6 +160,75 @@ sieve_one_block(uint16 *sieve_block, uint32 sieve_block_size,
 
 /*-------------------------------------------------------------------------*/
 static void
+prepare_sieve_line(root_sieve_t *rs)
+{
+	uint32 i, j, k;
+	sieve_prime_t *primes = rs->primes;
+	uint32 num_primes = rs->num_primes;
+	sieve_x_t *x = &rs->xdata;
+
+	for (i = 0; i < num_primes; i++) {
+
+		sieve_prime_t *curr_prime = primes + i;
+		uint32 num_powers = curr_prime->num_powers;
+		uint16 *contrib_array = curr_prime->contrib_array;
+		uint32 contrib_array_size = curr_prime->contrib_array_size;
+
+		memset(contrib_array, 0, contrib_array_size * sizeof(uint16));
+
+		for (j = 0; j < num_powers; j++) {
+
+			sieve_power_t *sp = curr_prime->powers + j;
+			uint32 num_roots = sp->num_roots;
+			uint32 power = sp->power;
+			uint16 contrib = sp->sieve_contrib;
+
+			uint32 xmin_mod;
+			uint32 y_mod;
+			uint32 z_mod;
+			int32 tmpval;
+
+			xmin_mod = mpz_fdiv_ui(x->x_base, power);
+			y_mod = mpz_fdiv_ui(rs->curr_y, power);
+			tmpval = rs->curr_z % power;
+			z_mod = (tmpval < 0) ? tmpval + (int32)power : tmpval;
+
+			for (k = 0; k < num_roots; k++) {
+				sieve_root_t *r = sp->roots + k;
+				uint32 start;
+				uint32 step = r->step;
+				uint32 resclass = r->resclass;
+
+				start = mp_modadd_1(y_mod, 
+						    resclass * z_mod % power, 
+						    power);
+				start = mp_modsub_1(r->start, 
+						    resclass * start % power, 
+						    power);
+				start = mp_modsub_1(start, xmin_mod, power);
+
+				if (step != power)
+					start = start % step;
+
+				while (start < contrib_array_size) {
+					contrib_array[start] += contrib;
+					start += step;
+				}
+			}
+		}
+
+		curr_prime->contrib_array_offset = 0;
+
+		for (j = 1; j < UNROLL; j++) {
+			memcpy(contrib_array + j * contrib_array_size, 
+				contrib_array, 
+				contrib_array_size * sizeof(uint16));
+		}
+	}
+}
+
+/*-------------------------------------------------------------------------*/
+static void
 prepare_sieve_lattice(root_sieve_t *rs)
 {
 	uint32 i, j, k, m;
@@ -274,9 +343,13 @@ root_sieve_line(root_sieve_t *rs)
 	uint32 num_primes = rs->num_primes;
 	uint16 *block = rs->sieve_block;
 
-//	printf("%u ", num_blocks); fflush(stdout);
+	printf("%u ", num_blocks); fflush(stdout);
 
-	prepare_sieve_lattice(rs);
+
+	if (mpz_cmp_ui(x->mp_lattice_size, 1) == 0)
+		prepare_sieve_line(rs);
+	else
+		prepare_sieve_lattice(rs);
 
 	line_heap.num_entries = 0;
 
