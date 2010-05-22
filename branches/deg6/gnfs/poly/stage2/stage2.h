@@ -181,8 +181,6 @@ typedef struct {
 
 	dpoly_t apoly;
 
-	uint32 num_roots_min;
-
 	uint16 curr_score;
 
 	mpz_t y_base;

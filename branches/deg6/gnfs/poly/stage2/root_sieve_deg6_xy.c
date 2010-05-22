@@ -15,20 +15,26 @@ $Id$
 #include "stage2.h"
 
 typedef struct {
-	uint32 start;
-	uint32 stride_z;
+	uint8 start;
+	uint8 stride_z;
+	uint8 *invtable_y;
 } xyprog_t;
 
 typedef struct {
-	uint32 p;
-	uint32 latsize_mod_p;
-	uint32 table_size;
-	uint32 num_roots;
-	uint32 max_sieve_val;
+	uint32 power;
+	uint32 latsize_mod;
 	uint16 contrib;
+	uint32 num_roots;
 	xyprog_t *roots;
-	uint8 *invtable_y;
-	uint8 *sieve;
+} xypower_t;
+
+typedef struct {
+	uint32 p;
+	uint32 table_size;
+	uint16 target_sieve_val;
+	uint32 num_powers;
+	xypower_t *powers;
+	uint16 *sieve;
 } xydata_t;
 
 /*-------------------------------------------------------------------------*/
@@ -46,21 +52,54 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 	for (i = 0; i < num_primes; i++) {
 
 		sieve_prime_t *curr_prime = primes + i;
+		uint32 p = curr_prime->prime;
+		uint32 num_powers = 1;
 
 		if (num_lattice_primes == MAX_CRT_FACTORS)
 			break;
 
 		if (curr_prime->powers[0].num_roots == 0 ||
-		    lattice_size_xyz % curr_prime->prime == 0)
+		    lattice_size_xyz % p == 0)
 			continue;
 
-		if (curr_size * curr_prime->prime >= target_size)
+		if (curr_size * p >= target_size)
 			break;
+
+		switch (p) {
+		case 2:
+			if (target_size < 1000) {
+				p = 16;
+				num_powers = 4;
+			}
+			else {
+				p = 32;
+				num_powers = 5;
+			}
+			break;
+
+		case 3:
+			if (target_size < 1000) {
+				p = 9;
+				num_powers = 2;
+			}
+			else {
+				p = 27;
+				num_powers = 3;
+			}
+			break;
+
+		case 5:
+			if (target_size > 15000) {
+				p = 25;
+				num_powers = 2;
+			}
+			break;
+		}
 
 		tmp *= curr_prime->prime;
 		lattice_primes[num_lattice_primes] = *curr_prime;
-		lattice_primes[num_lattice_primes].num_powers = 1;
-		curr_size *= curr_prime->prime;
+		lattice_primes[num_lattice_primes].num_powers = num_powers;
+		curr_size *= p;
 		num_lattice_primes++;
 	}
 
@@ -69,7 +108,7 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 }
 
 /*-------------------------------------------------------------------------*/
-#define MAX_XY_LATTICES 10
+#define MAX_XY_LATTICES 20
 
 static void 
 root_sieve_xy(root_sieve_t *rs, xydata_t *xydata, 
@@ -88,17 +127,17 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 		xydata_t *curr_xydata = xydata + i;
 		uint32 p = curr_xydata->p;
 		uint32 table_size = curr_xydata->table_size;
-		uint8 *sieve = curr_xydata->sieve;
-		uint32 max_sieve_val = curr_xydata->max_sieve_val;
-		uint16 contrib = curr_xydata->contrib;
+		uint16 *sieve = curr_xydata->sieve;
+		uint32 target_sieve_val = curr_xydata->target_sieve_val;
 		hit_t *hits = hitlist + i;
 
 		for (j = k = 0; j < table_size; j++) {
-			if (sieve[j] >= max_sieve_val) {
-				hits->score[k] = sieve[j] * contrib;
+			if (sieve[j] >= target_sieve_val) {
+				hits->score[k] = sieve[j];
 				hits->roots[k][0] = j % p;
 				hits->roots[k][1] = j / p;
-				k++;
+				if (++k == MAX_ROOTS)
+					break;
 			}
 		}
 
@@ -153,29 +192,65 @@ xydata_alloc(sieve_prime_t *lattice_primes,
 		uint32 num_lattice_primes, 
 		uint64 lattice_size_xyz,
 		xydata_t *xydata,
-		uint32 num_roots_min)
+		double num_tests)
 {
-	uint32 i;
+	uint32 i, j, k;
 
 	for (i = 0; i < num_lattice_primes; i++) {
 
 		sieve_prime_t *curr_prime = lattice_primes + i;
 		xydata_t *curr_xydata = xydata + i;
-		uint32 p = curr_prime->prime;
+		uint32 num_powers = curr_prime->num_powers;
+		uint32 p = curr_prime->powers[num_powers-1].power;
 		uint32 table_size = p * p;
-		uint32 num_roots = curr_prime->powers[0].num_roots;
+		uint32 target_sieve_val = 0;
 
 		curr_xydata->p = p;
-		curr_xydata->latsize_mod_p = lattice_size_xyz % p;
 		curr_xydata->table_size = table_size;
-		curr_xydata->num_roots = num_roots;
-		curr_xydata->max_sieve_val = MIN(num_roots - 1, num_roots_min);
-		curr_xydata->contrib = curr_prime->powers[0].sieve_contrib;
-		curr_xydata->roots = (xyprog_t *)xmalloc(num_roots * 
+		curr_xydata->num_powers = num_powers;
+		curr_xydata->powers = (xypower_t *)xmalloc(num_powers *
+						sizeof(xypower_t));
+		curr_xydata->sieve = (uint16 *)xmalloc(table_size *
+						sizeof(uint16));
+
+		for (j = 0; j < num_powers; j++) {
+			sieve_power_t *sp = curr_prime->powers + j;
+			xypower_t *curr_xypower = curr_xydata->powers + j;
+			uint32 power = sp->power;
+			uint32 num_roots = sp->num_roots;
+			uint32 target_roots = 0;
+	
+			curr_xypower->power = power;
+			curr_xypower->latsize_mod = lattice_size_xyz % power;
+			curr_xypower->num_roots = num_roots;
+			curr_xypower->contrib = sp->sieve_contrib;
+			curr_xypower->roots = (xyprog_t *)xmalloc(num_roots * 
 							sizeof(xyprog_t));
-		curr_xydata->sieve = (uint8 *)xmalloc((2 * table_size) * 
-							sizeof(uint8));
-		curr_xydata->invtable_y = curr_xydata->sieve + table_size;
+
+			if (j == 0) {
+				if (num_tests < 1000)
+					target_roots = 3;
+				else if (num_tests < 10000)
+					target_roots = 4;
+				else
+					target_roots = 5;
+			}
+			else {
+				if (curr_prime->prime == 2)
+					target_roots = num_roots - 1;
+				else
+					target_roots = num_roots / 2;
+			}
+			target_sieve_val += curr_xypower->contrib *
+					MIN(num_roots, target_roots);
+
+			for (k = 0; k < num_roots; k++) {
+				curr_xypower->roots[k].invtable_y = 
+					(uint8 *)xmalloc(power * sizeof(uint8));
+			}
+		}
+
+		curr_xydata->target_sieve_val = target_sieve_val;
 	}
 }
 
@@ -183,13 +258,21 @@ xydata_alloc(sieve_prime_t *lattice_primes,
 static void
 xydata_free(xydata_t *xydata, uint32 num_lattice_primes)
 {
-	uint32 i;
+	uint32 i, j, k;
 
 	for (i = 0; i < num_lattice_primes; i++) {
 
 		xydata_t *curr_xydata = xydata + i;
 
-		free(curr_xydata->roots);
+		for (j = 0; j < curr_xydata->num_powers; j++) {
+			xypower_t *curr_xypower = curr_xydata->powers + j;
+	
+			for (k = 0; k < curr_xypower->num_roots; k++)
+				free(curr_xypower->roots[k].invtable_y);
+
+			free(curr_xypower->roots);
+		}
+		free(curr_xydata->powers);
 		free(curr_xydata->sieve);
 	}
 }
@@ -200,52 +283,129 @@ xydata_init(sieve_prime_t *lattice_primes, xydata_t *xydata,
 		uint32 num_lattice_primes, 
 		lattice_t *lattice_xyz, int64 z_base)
 {
-	uint32 i, j, k, m;
+	uint32 i, j, k, m, n;
 
 	for (i = 0; i < num_lattice_primes; i++) {
 
 		sieve_prime_t *curr_prime = lattice_primes + i;
-		sieve_power_t *sp = curr_prime->powers + 0;
 		xydata_t *curr_xydata = xydata + i;
+		uint32 num_powers = curr_xydata->num_powers;
 
-		uint32 p = curr_xydata->p;
-		uint32 num_roots = curr_xydata->num_roots;
-		uint8 *invtable_y = curr_xydata->invtable_y;
-		xyprog_t *roots = curr_xydata->roots;
+		for (j = 0; j < num_powers; j++) {
+			sieve_power_t *sp = curr_prime->powers + j;
+			xypower_t *curr_xypower = curr_xydata->powers + j;
+			uint32 num_roots = curr_xypower->num_roots;
 
-		uint32 latsize_mod_p = curr_xydata->latsize_mod_p;
-		uint32 y_mod_p = lattice_xyz->y % p;
-		int64 z_start = z_base + lattice_xyz->z;
-		int32 z_start_mod = z_start % p;
-		uint32 z_mod_p = (z_start_mod < 0) ? 
-				(z_start_mod + (int32)p) : z_start_mod;
+			uint32 p = curr_xypower->power;
+			uint32 latsize_mod = curr_xypower->latsize_mod;
+			uint32 y_mod_p = lattice_xyz->y % p;
+			int64 z_start = z_base + lattice_xyz->z;
+			int32 z_start_mod = z_start % p;
+			uint32 z_mod_p = (z_start_mod < 0) ? 
+					(z_start_mod + (int32)p) : z_start_mod;
+
+			for (k = 0; k < num_roots; k++) {
+				sieve_root_t *r = sp->roots + k;
+				xyprog_t *curr_xyprog = curr_xypower->roots + k;
+
+				uint8 *invtable_y = curr_xyprog->invtable_y;
+				uint32 start = r->start;
+				uint32 resclass = r->resclass;
+				uint32 resclass2 = mp_modmul_1(resclass, 
+							resclass, p);
+				uint32 ytmp = y_mod_p;
+				uint32 stride_y = mp_modmul_1(resclass, 
+							latsize_mod, p);
+
+				curr_xyprog->stride_z = mp_modmul_1(resclass2, 
+							latsize_mod, p);
+
+				start = mp_modsub_1(start, 
+						mp_modmul_1(resclass, 
+							y_mod_p, p), p);
+				curr_xyprog->start = mp_modsub_1(start, 
+						mp_modmul_1(resclass2, 
+							z_mod_p, p), p);
+
+				for (m = n = 0; m < p; m++) {
+					invtable_y[ytmp] = n;
+					ytmp = mp_modadd_1(ytmp, 
+							latsize_mod, p);
+					n = mp_modadd_1(n, stride_y, p);
+				}
+			}
+		}
+	}
+}
+
+/*-------------------------------------------------------------------------*/
+static void 
+do_sieving(xydata_t *curr_xydata) 
+{
+	uint32 i, j;
+
+	uint16 *sieve = curr_xydata->sieve;
+	xypower_t *curr_xypower = curr_xydata->powers + 0;
+	uint32 p = curr_xypower->power;
+	uint16 contrib = curr_xypower->contrib;
+	uint32 num_roots = curr_xypower->num_roots;
+	xyprog_t *roots = curr_xypower->roots;
+
+	for (i = 0; i < num_roots; i++) {
+
+		uint16 *row = sieve;
+		xyprog_t *curr_prog = roots + i;
+		uint32 start = curr_prog->start;
+		uint8 *invtable_y = curr_prog->invtable_y;
+
+		for (j = 0; j < p; j++) {
+			uint32 curr_start = mp_modsub_1(start, 
+						invtable_y[j], p);
+			row[curr_start] += contrib;
+			row += p;
+		}
+	}
+}
+
+/*-------------------------------------------------------------------------*/
+static void 
+do_sieving_powers(xydata_t *curr_xydata) 
+{
+	uint32 i, j, k, m;
+
+	uint16 *sieve = curr_xydata->sieve;
+	uint32 p = curr_xydata->p;
+	uint32 num_powers = curr_xydata->num_powers;
+	xypower_t *powers = curr_xydata->powers;
+
+	for (i = 0; i < num_powers; i++) {
+		xypower_t *curr_xypower = powers + i;
+		uint32 power = curr_xypower->power;
+		uint16 contrib = curr_xypower->contrib;
+		uint32 num_roots = curr_xypower->num_roots;
+		xyprog_t *roots = curr_xypower->roots;
 
 		for (j = 0; j < num_roots; j++) {
-			sieve_root_t *r = sp->roots + j;
-			xyprog_t *curr_xyprog = roots + j;
-			uint32 start = r->start;
-			uint32 resclass = r->resclass;
-			uint32 resclass2 = mp_modmul_1(resclass, resclass, p);
-			uint32 ytmp = y_mod_p;
-			uint32 stride_y = mp_modmul_1(resclass, 
-							latsize_mod_p, p);
 
-			curr_xyprog->stride_z = mp_modmul_1(resclass2, 
-							latsize_mod_p, p);
+			uint16 *row = sieve;
+			xyprog_t *curr_prog = roots + j;
+			uint32 start = curr_prog->start;
+			uint8 *invtable_y = curr_prog->invtable_y;
 
-			start = mp_modsub_1(start, 
-					mp_modmul_1(resclass, y_mod_p, p), 
-					p);
-			curr_xyprog->start = mp_modsub_1(start, 
-					mp_modmul_1(resclass2, z_mod_p, p), 
-					p);
+			for (k = 0; k < p; k += power) {
 
-			for (k = m = 0; k < p; k++) {
-				invtable_y[ytmp] = m;
-				ytmp = mp_modadd_1(ytmp, latsize_mod_p, p);
-				m = mp_modadd_1(m, stride_y, p);
+				for (m = 0; m < power; m++) {
+					uint32 curr_start = mp_modsub_1(start, 
+								invtable_y[m], 
+								power);
+					do {
+						row[curr_start] += contrib;
+						curr_start += power;
+					} while (curr_start < p);
+
+					row += p;
+				}
 			}
-			invtable_y += p;
 		}
 	}
 }
@@ -267,33 +427,30 @@ find_hits(root_sieve_t *rs, xydata_t *xydata,
 		for(j = 0; j < num_lattice_primes; j++) {
 
 			xydata_t *curr_xydata = xydata + j;
-			uint32 p = curr_xydata->p;
 			uint32 table_size = curr_xydata->table_size;
-			uint32 num_roots = curr_xydata->num_roots;
-			uint32 max_sieve_val = curr_xydata->max_sieve_val;
-			xyprog_t *roots = curr_xydata->roots;
-			uint8 *sieve = curr_xydata->sieve;
-			uint8 *invtable_y = curr_xydata->invtable_y;
+			uint32 target_sieve_val = curr_xydata->target_sieve_val;
+			uint16 *sieve = curr_xydata->sieve;
 
-			memset(sieve, 0, table_size * sizeof(uint8));
+			memset(sieve, 0, table_size * sizeof(uint16));
 
-			for (k = 0; k < num_roots; k++) {
+			if (curr_xydata->num_powers == 1)
+				do_sieving(curr_xydata);
+			else
+				do_sieving_powers(curr_xydata);
 
-				uint8 *row = sieve;
-				xyprog_t *curr_prog = roots + k;
-				uint32 start = curr_prog->start;
 
+#if 0
+			printf("\n\n%u %u %u\n", i, j, target_sieve_val);
+			uint32 p = curr_xydata->p;
+			for (k = 0; k < p; k++) {
 				for (m = 0; m < p; m++) {
-					uint32 curr_start = mp_modsub_1(start, 
-							invtable_y[m], p);
-					row[curr_start]++;
-					row += p;
+					printf("%4u ", sieve[k*p+m]);
 				}
-				invtable_y += p;
+				printf("\n");
 			}
-
+#endif
 			for (k = 0; k < table_size; k++) {
-				if (sieve[k] >= max_sieve_val)
+				if (sieve[k] >= target_sieve_val)
 					break;
 			}
 			if (k == table_size)
@@ -312,17 +469,21 @@ find_hits(root_sieve_t *rs, xydata_t *xydata,
 		for (j = 0; j < num_lattice_primes; j++) {
 
 			xydata_t *curr_xydata = xydata + j;
-			uint32 p = curr_xydata->p;
-			uint32 num_roots = curr_xydata->num_roots;
-			xyprog_t *roots = curr_xydata->roots;
+			uint32 num_powers = curr_xydata->num_powers;
 
-			for (k = 0; k < num_roots; k++) {
+			for (k = 0; k < num_powers; k++) {
+				xypower_t *curr_xypower = curr_xydata->powers+k;
+				uint32 p = curr_xypower->power;
+				uint32 num_roots = curr_xypower->num_roots;
+				xyprog_t *roots = curr_xypower->roots;
 
-				xyprog_t *curr_prog = roots + k;
-				curr_prog->start = mp_modsub_1(
+				for (m = 0; m < num_roots; m++) {
+					xyprog_t *curr_prog = roots + m;
+					curr_prog->start = mp_modsub_1(
 							curr_prog->start,
 							curr_prog->stride_z, 
 							p);
+				}
 			}
 		}
 	}
@@ -405,7 +566,8 @@ sieve_xy_run(root_sieve_t *rs)
 	xy->dbl_lattice_size = mpz_get_d(xy->mp_lattice_size);
 
 	xydata_alloc(lattice_primes, num_lattice_primes, 
-			xyz->lattice_size, xydata, xy->num_roots_min);
+			xyz->lattice_size, xydata, 
+			(double)xyz->z_blocks * xyz->num_lattices);
 
 	for (i = 0; i < xyz->num_lattices; i++) {
 
