@@ -297,9 +297,7 @@ root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
 	for (i = 0; i <= data->degree; i++)
 		rs->apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 
-	rs->xdata.num_roots_min = 4;
 	sieve_xyz_run(rs);
-	sieve_xy_run(rs);
 
 	for (i = 0; i < rs->root_heap.num_entries; i++) {
 		mp_rotation_t *r = rs->root_heap.mp_entries + i;

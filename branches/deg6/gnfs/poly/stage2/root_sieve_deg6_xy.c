@@ -15,6 +15,8 @@ $Id$
 #include "stage2.h"
 
 typedef struct {
+	uint8 base_start;
+	uint8 resclass;
 	uint8 start;
 	uint8 stride_z;
 	uint8 *invtable_y;
@@ -89,14 +91,14 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 			break;
 
 		case 5:
-			if (target_size > 15000) {
+			if (target_size > 50000) {
 				p = 25;
 				num_powers = 2;
 			}
 			break;
 		}
 
-		tmp *= curr_prime->prime;
+		tmp *= p;
 		lattice_primes[num_lattice_primes] = *curr_prime;
 		lattice_primes[num_lattice_primes].num_powers = num_powers;
 		curr_size *= p;
@@ -108,7 +110,7 @@ find_lattice_primes(sieve_prime_t *primes, uint32 num_primes,
 }
 
 /*-------------------------------------------------------------------------*/
-#define MAX_XY_LATTICES 20
+#define MAX_XY_LATTICES 10
 
 static void 
 root_sieve_xy(root_sieve_t *rs, xydata_t *xydata, 
@@ -122,6 +124,9 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 	sieve_xy_t *xy = &rs->xydata;
 	uint32 num_lattices = 1;
 
+	if (line_min >= line_max)
+		return;
+
 	for (i = 0; i < num_lattice_primes; i++) {
 
 		xydata_t *curr_xydata = xydata + i;
@@ -133,6 +138,12 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 
 		for (j = k = 0; j < table_size; j++) {
 			if (sieve[j] >= target_sieve_val) {
+
+				if (sieve[j] > target_sieve_val) {
+					target_sieve_val = sieve[j];
+					k = 0;
+				}
+
 				hits->score[k] = sieve[j];
 				hits->roots[k][0] = j % p;
 				hits->roots[k][1] = j / p;
@@ -187,6 +198,13 @@ root_sieve_xy(root_sieve_t *rs, xydata_t *xydata,
 }
 
 /*-------------------------------------------------------------------------*/
+static int compare_xydata(const void *x, const void *y)
+{
+	xydata_t *xx = (xydata_t *)x;
+	xydata_t *yy = (xydata_t *)y;
+	return xx->p - yy->p;
+}
+
 static void
 xydata_alloc(sieve_prime_t *lattice_primes, 
 		uint32 num_lattice_primes, 
@@ -228,12 +246,10 @@ xydata_alloc(sieve_prime_t *lattice_primes,
 							sizeof(xyprog_t));
 
 			if (j == 0) {
-				if (num_tests < 1000)
+				if (num_tests < 100000)
 					target_roots = 3;
-				else if (num_tests < 10000)
-					target_roots = 4;
 				else
-					target_roots = 5;
+					target_roots = 4;
 			}
 			else {
 				if (curr_prime->prime == 2)
@@ -245,13 +261,20 @@ xydata_alloc(sieve_prime_t *lattice_primes,
 					MIN(num_roots, target_roots);
 
 			for (k = 0; k < num_roots; k++) {
-				curr_xypower->roots[k].invtable_y = 
+				sieve_root_t *r = sp->roots + k;
+				xyprog_t *curr_xyprog = curr_xypower->roots + k;
+
+				curr_xyprog->base_start = r->start;
+				curr_xyprog->resclass = r->resclass;
+				curr_xyprog->invtable_y = 
 					(uint8 *)xmalloc(power * sizeof(uint8));
 			}
 		}
 
 		curr_xydata->target_sieve_val = target_sieve_val;
 	}
+
+	qsort(xydata, num_lattice_primes, sizeof(xydata_t), compare_xydata);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -279,20 +302,17 @@ xydata_free(xydata_t *xydata, uint32 num_lattice_primes)
 
 /*-------------------------------------------------------------------------*/
 static void 
-xydata_init(sieve_prime_t *lattice_primes, xydata_t *xydata,
-		uint32 num_lattice_primes, 
+xydata_init(xydata_t *xydata, uint32 num_lattice_primes, 
 		lattice_t *lattice_xyz, int64 z_base)
 {
 	uint32 i, j, k, m, n;
 
 	for (i = 0; i < num_lattice_primes; i++) {
 
-		sieve_prime_t *curr_prime = lattice_primes + i;
 		xydata_t *curr_xydata = xydata + i;
 		uint32 num_powers = curr_xydata->num_powers;
 
 		for (j = 0; j < num_powers; j++) {
-			sieve_power_t *sp = curr_prime->powers + j;
 			xypower_t *curr_xypower = curr_xydata->powers + j;
 			uint32 num_roots = curr_xypower->num_roots;
 
@@ -305,12 +325,11 @@ xydata_init(sieve_prime_t *lattice_primes, xydata_t *xydata,
 					(z_start_mod + (int32)p) : z_start_mod;
 
 			for (k = 0; k < num_roots; k++) {
-				sieve_root_t *r = sp->roots + k;
 				xyprog_t *curr_xyprog = curr_xypower->roots + k;
 
 				uint8 *invtable_y = curr_xyprog->invtable_y;
-				uint32 start = r->start;
-				uint32 resclass = r->resclass;
+				uint32 start = curr_xyprog->base_start;
+				uint32 resclass = curr_xyprog->resclass;
 				uint32 resclass2 = mp_modmul_1(resclass, 
 							resclass, p);
 				uint32 ytmp = y_mod_p;
@@ -439,16 +458,6 @@ find_hits(root_sieve_t *rs, xydata_t *xydata,
 				do_sieving_powers(curr_xydata);
 
 
-#if 0
-			printf("\n\n%u %u %u\n", i, j, target_sieve_val);
-			uint32 p = curr_xydata->p;
-			for (k = 0; k < p; k++) {
-				for (m = 0; m < p; m++) {
-					printf("%4u ", sieve[k*p+m]);
-				}
-				printf("\n");
-			}
-#endif
 			for (k = 0; k < table_size; k++) {
 				if (sieve[k] >= target_sieve_val)
 					break;
@@ -573,8 +582,13 @@ sieve_xy_run(root_sieve_t *rs)
 
 		lattice_t *curr_lattice_xyz = xyz->lattices + i;
 
-		xydata_init(lattice_primes, xydata, 
-				num_lattice_primes,
+#if 0
+		if (i % 10 == 0) {
+			printf(".");
+			fflush(stdout);
+		}
+#endif
+		xydata_init(xydata, num_lattice_primes,
 				curr_lattice_xyz, z_base);
 
 		find_hits(rs, xydata, num_lattice_primes, 

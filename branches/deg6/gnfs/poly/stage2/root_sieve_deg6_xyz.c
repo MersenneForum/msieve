@@ -18,12 +18,12 @@ $Id$
 static uint64
 find_lattice_size(double line_length)
 {
-	if (line_length < 1e3)
+	if (line_length < 1e4)
 		return 1;
-	else if (line_length < 1e4)
-		return (uint64)2*2*3*5;
+	else if (line_length < 1e5)
+		return (uint64)2*2*2*3*3;
 	else if (line_length < 1e6)
-		return (uint64)2*2*2*3*3*5*7;
+		return (uint64)2*2*2*2*3*3*3;
 	else if (line_length < 1e8)
 		return (uint64)2*2*2*2*2*3*3*3*5*5*7;
 	else if (line_length < 1e11)
@@ -82,10 +82,11 @@ do_sieving(sieve_root_t *r, uint16 *sieve,
 
 			uint32 rj = ri;
 
-			while (rj < dim) {
+			do {
 				sieve[rj] += contrib;
 				rj += step;
-			}
+			} while (rj < dim);
+
 			sieve += dim;
 			ri = mp_modsub_1(ri, resclass, step);
 		}
@@ -113,7 +114,7 @@ find_hits(sieve_prime_t *lattice_primes,
 		uint32 num_powers = curr_prime->num_powers;
 		uint32 dim = curr_prime->powers[num_powers-1].power;
 		uint32 size = dim * dim * dim;
-		uint32 max_score;
+		uint32 max_score = 0;
 		hit_t *hits = hitlist + i;
 
 		memset(sieve, 0, size * sizeof(uint16));
@@ -130,15 +131,14 @@ find_hits(sieve_prime_t *lattice_primes,
 			}
 		}
 
-		for (j = max_score = 0; j < size; j++) {
-			uint32 curr_score = sieve[j];
-			max_score = MAX(max_score, curr_score);
-		}
-
 		for (j = k = 0; j < size; j++) {
 			uint32 curr_score = sieve[j];
 
-			if (curr_score == max_score) {
+			if (curr_score >= max_score) {
+				if (curr_score > max_score) {
+					max_score = curr_score;
+					k = 0;
+				}
 				if (k == MAX_ROOTS)
 					break;
 
@@ -183,6 +183,7 @@ sieve_xyz_run(root_sieve_t *rs)
 	uint32 num_lattice_primes;
 	uint32 num_lattices;
 	uint32 z_blocks;
+	int64 next_z;
 
 	double direction[3] = {0, 0, 1};
 	double line_min, line_max;
@@ -251,18 +252,45 @@ sieve_xyz_run(root_sieve_t *rs)
 	direction[0] = 0;
 	direction[1] = 1;
 	direction[2] = 0;
+	next_z = xyz->z_base;
 	for (i = 0; i < z_blocks; i++) {
-		dpoly_t apoly = rs->apoly;
+		dpoly_t apoly;
 		int64 curr_z = xyz->z_base + i * lattice_size;
 
+		if (curr_z < next_z) {
+			if (line_min >= line_max) {
+				xyz->y_line_min[i] = 0;
+				xyz->y_line_max[i] = 0;
+			}
+			else {
+				xyz->y_line_min[i] = line_min;
+				xyz->y_line_max[i] = line_max;
+			}
+			continue;
+		}
+
+		next_z = curr_z + 10;
+		apoly = rs->apoly;
 		apoly.coeff[3] += rs->dbl_p * curr_z;
 		apoly.coeff[2] -= rs->dbl_d * curr_z;
+		if (line_min >= line_max) {
+			line_min = -10000;
+			line_max = 10000;
+		}
 
-		compute_line_size_deg6(rs->max_norm, &rs->apoly,
+		compute_line_size_deg6(rs->max_norm, &apoly,
 			rs->dbl_p, rs->dbl_d, direction,
 			line_min, line_max, &line_min, &line_max);
 
-		xyz->y_line_min[i] = line_min;
-		xyz->y_line_max[i] = line_max;
+		if (line_min >= line_max) {
+			xyz->y_line_min[i] = 0;
+			xyz->y_line_max[i] = 0;
+		}
+		else {
+			xyz->y_line_min[i] = line_min;
+			xyz->y_line_max[i] = line_max;
+		}
 	}
+
+	sieve_xy_run(rs);
 }

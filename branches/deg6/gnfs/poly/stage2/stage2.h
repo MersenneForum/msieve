@@ -208,8 +208,6 @@ typedef struct {
 
 	dpoly_t apoly;
 
-	uint32 num_roots_min;
-
 	double last_line_min;
 	double last_line_max;
 	uint16 curr_score;

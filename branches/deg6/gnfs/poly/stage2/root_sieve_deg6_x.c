@@ -151,7 +151,7 @@ xdata_alloc(sieve_prime_t *lattice_primes,
 		uint32 num_lattice_primes, 
 		mpz_t mp_lattice_size,
 		xdata_t *xdata,
-		uint32 num_roots_min)
+		uint32 num_tests)
 {
 	uint32 i;
 
@@ -161,15 +161,17 @@ xdata_alloc(sieve_prime_t *lattice_primes,
 		xdata_t *curr_xdata = xdata + i;
 		uint32 p = curr_prime->prime;
 		uint32 num_roots = curr_prime->powers[0].num_roots;
+		uint32 min_roots = 4;
 
 		curr_xdata->p = p;
 		curr_xdata->latsize_mod_p = mpz_tdiv_ui(mp_lattice_size, p);
 		curr_xdata->num_roots = num_roots;
-		curr_xdata->max_sieve_val = MIN(num_roots - 1, num_roots_min);
 		curr_xdata->contrib = curr_prime->powers[0].sieve_contrib;
 		curr_xdata->roots = (xprog_t *)xmalloc(num_roots * 
 							sizeof(xprog_t));
 		curr_xdata->sieve = (uint8 *)xmalloc(p * sizeof(uint8));
+
+		curr_xdata->max_sieve_val = MIN(min_roots, num_roots);
 	}
 }
 
@@ -354,7 +356,7 @@ sieve_x_run(root_sieve_t *rs)
 	x->dbl_lattice_size = mpz_get_d(x->mp_lattice_size);
 
 	xdata_alloc(lattice_primes, num_lattice_primes, 
-			xy->mp_lattice_size, xdata, x->num_roots_min);
+			xy->mp_lattice_size, xdata, xy->y_blocks);
 
 	xdata_init(lattice_primes, xdata, num_lattice_primes,
 			xy->y_base, xy->resclass_y, 
