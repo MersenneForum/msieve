@@ -279,7 +279,6 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	uint32 i;
 	double best[MAX_VARS];
 	double score, last_score;
-	double s0, s1;
 	dpoly_t rpoly, apoly;
 
 	opt_data.rotate_dim = rotate_dim;
@@ -295,15 +294,8 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 		apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 	}
 
-	s0 = s1 = 1.0;
-	if (apoly.coeff[deg-1] != 0)
-		s0 = fabs(apoly.coeff[deg-1] / 
-			  apoly.coeff[deg]);
-	if (apoly.coeff[deg-2] != 0)
-		s1 = sqrt(fabs(apoly.coeff[deg-2] / 
-			       apoly.coeff[deg]));
 	best[TRANSLATE_SIZE] = 0;
-	best[SKEWNESS] = MAX(s0, s1);
+	best[SKEWNESS] = 1000;
 	best[ROTATE0] = 0;
 	best[ROTATE1] = 0;
 	best[ROTATE2] = 0;
@@ -375,21 +367,13 @@ double
 optimize_basic(dpoly_t *apoly, double *best_skewness,
 		double *best_translation)
 {
-	uint32 d = apoly->degree;
 	opt_data_t opt_data;
 	double best[MAX_VARS];
 	double score;
-	double s0 = 1.0;
-	double s1 = 1.0;
 
 	opt_data.dapoly = apoly;
-	if (apoly->coeff[d-1] != 0)
-		s0 = fabs(apoly->coeff[d-1] / apoly->coeff[d]);
-	if (apoly->coeff[d-2] != 0)
-		s1 = sqrt(fabs(apoly->coeff[d-2] / apoly->coeff[d]));
-
 	best[TRANSLATE_SIZE] = 0;
-	best[SKEWNESS] = MAX(s0, s1);
+	best[SKEWNESS] = 1000;
 
 	score = minimize(best, 2, 1e-5, 40, poly_xlate_callback, &opt_data);
 
@@ -422,9 +406,7 @@ optimize_final_core(curr_poly_t *c, assess_t *assess, uint32 deg,
 	apoly.degree = deg;
 
 	best[TRANSLATE_SIZE] = 0;
-	best[SKEWNESS] = sqrt(fabs(mpz_get_d(c->gmp_b[deg-2]) / 
-				mpz_get_d(c->gmp_b[deg])));
-	best[SKEWNESS] = MAX(1.0, best[SKEWNESS]);
+	best[SKEWNESS] = 1000;
 
 	for (i = 0; i <= 1; i++) {
 		gmp2mp(c->gmp_linb[i], &tmp.num);
