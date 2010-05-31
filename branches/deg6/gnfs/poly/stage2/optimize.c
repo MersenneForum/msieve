@@ -337,7 +337,7 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	opt_data_t opt_data;
 	uint32 i, j;
 	double best[MAX_VARS];
-	double score, last_score;
+	double score, last_score, tol;
 	dpoly_t rpoly, apoly;
 
 	opt_data.rotate_dim = rotate_dim;
@@ -360,11 +360,12 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 	best[ROTATE1] = 0;
 	best[ROTATE2] = 0;
 	score = 1e100;
+	tol = 1e-3;
 
 	for (i = 0; i < 2; i++) {
 		do {
 			last_score = score;
-			score = minimize(best, rotate_dim + 3, 1e-5, 40, 
+			score = minimize(best, rotate_dim + 3, tol, 40, 
 					poly_rotate_callback, &opt_data);
 
 			for (j = 0; j <= rotate_dim; j++) {
@@ -392,6 +393,7 @@ optimize_initial(poly_stage2_t *data, double *pol_norm)
 
 		if (i == 0) {
 			opt_data.norm_callback = ifs_rectangular;
+			tol = 1e-5;
 			score = ifs_rectangular(apoly.coeff, apoly.degree,
 						best[SKEWNESS]);
 		}
