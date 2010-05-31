@@ -176,7 +176,7 @@ sieve_xyz_free(sieve_xyz_t *xyz)
 void
 sieve_xyz_run(root_sieve_t *rs)
 {
-	uint32 i;
+	uint32 i, j;
 	sieve_xyz_t *xyz = &rs->xyzdata;
 	hit_t hitlist[MAX_CRT_FACTORS];
 	uint64 lattice_size;
@@ -217,10 +217,7 @@ sieve_xyz_run(root_sieve_t *rs)
 			xyz->lattices = (lattice_t *)xrealloc(xyz->lattices,
 					num_lattices * sizeof(lattice_t));
 		}
-		xyz->lattices[0].score = 0;
-		xyz->lattices[0].x = 0;
-		xyz->lattices[0].y = 0;
-		xyz->lattices[0].z = 0;
+		memset(xyz->lattices, 0, sizeof(lattice_t));
 	}
 	else {
 		num_lattice_primes = xyz->num_lattice_primes = 
@@ -244,8 +241,6 @@ sieve_xyz_run(root_sieve_t *rs)
 
 	}
 	xyz->num_lattices = num_lattices;
-
-	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
 
 	line_min = -10000;
 	line_max = 10000;
@@ -291,6 +286,27 @@ sieve_xyz_run(root_sieve_t *rs)
 			xyz->y_line_max[i] = line_max;
 		}
 	}
+
+	for (i = z_blocks; i; i--) {
+		if (xyz->y_line_min[i-1] != xyz->y_line_max[i-1])
+			break;
+	}
+	z_blocks = i;
+	for (i = 0; i < z_blocks; i++) {
+		if (xyz->y_line_min[i] != xyz->y_line_max[i])
+			break;
+		xyz->z_base += lattice_size;
+	}
+	z_blocks -= i;
+	if (i > 0) {
+		for (j = 0; j < z_blocks; j++) {
+			xyz->y_line_min[j] = xyz->y_line_min[j+i];
+			xyz->y_line_max[j] = xyz->y_line_max[j+i];
+		}
+		xyz->z_blocks = z_blocks;
+	}
+
+	printf("%.0lf %u %u\n", (double)lattice_size, z_blocks, num_lattices);
 
 	sieve_xy_run(rs);
 }
