@@ -38,15 +38,13 @@ typedef struct {
 	uint16 *sieve;
 } xydata_t;
 
-
-
 typedef struct {
 	lattice_t plane;
 	uint32 which_z_block;
 	uint32 which_lattice_xyz;
 } plane_t;
 
-#define PLANE_HEAP_SIZE 20
+#define PLANE_HEAP_SIZE 50
 
 typedef struct {
 	uint32 num_entries;
@@ -524,6 +522,14 @@ sieve_xy_free(sieve_xy_t *xy)
 }
 
 /*-------------------------------------------------------------------------*/
+static int 
+compare_planes(const void *x, const void *y)
+{
+	plane_t *xx = (plane_t *)x;
+	plane_t *yy = (plane_t *)y;
+	return (int)yy->plane.score - (int)xx->plane.score;
+}
+
 void
 sieve_xy_run(root_sieve_t *rs)
 {
@@ -538,6 +544,7 @@ sieve_xy_run(root_sieve_t *rs)
 
 	double direction[3] = {0, 1, 0};
 	double line_min, line_max;
+	uint16 cutoff_score;
 	xydata_t xydata[MAX_CRT_FACTORS];
 	plane_heap_t plane_heap;
 
@@ -585,12 +592,19 @@ sieve_xy_run(root_sieve_t *rs)
 
 	xydata_free(xydata, num_lattice_primes);
 
+	qsort(plane_heap.entries, plane_heap.num_entries,
+			sizeof(plane_t), compare_planes);
+	cutoff_score = 0.9 * plane_heap.entries[0].plane.score;
+
 	for (i = 0; i < plane_heap.num_entries; i++) {
 
 		plane_t *curr_plane = plane_heap.entries + i;
 		lattice_t *lattice_xy = &curr_plane->plane;
 		lattice_t *lattice_xyz = xyz->lattices + 
 					curr_plane->which_lattice_xyz;
+
+		if (lattice_xy->score < cutoff_score)
+			break;
 
 		line_min = xyz->y_line_min[curr_plane->which_z_block];
 		line_max = xyz->y_line_max[curr_plane->which_z_block];
