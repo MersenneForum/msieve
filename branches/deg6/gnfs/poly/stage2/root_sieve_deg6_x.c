@@ -150,8 +150,7 @@ static void
 xdata_alloc(sieve_prime_t *lattice_primes, 
 		uint32 num_lattice_primes, 
 		mpz_t mp_lattice_size,
-		xdata_t *xdata,
-		uint32 num_tests)
+		xdata_t *xdata)
 {
 	uint32 i;
 
@@ -356,7 +355,7 @@ sieve_x_run(root_sieve_t *rs)
 	x->dbl_lattice_size = mpz_get_d(x->mp_lattice_size);
 
 	xdata_alloc(lattice_primes, num_lattice_primes, 
-			xy->mp_lattice_size, xdata, xy->y_blocks);
+			xy->mp_lattice_size, xdata);
 
 	xdata_init(lattice_primes, xdata, num_lattice_primes,
 			xy->y_base, xy->resclass_y, 
