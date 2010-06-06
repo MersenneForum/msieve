@@ -278,6 +278,9 @@ save_mp_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
 }
 
 /*-------------------------------------------------------------------------*/
+static const double size_bound[] = {1.05, 1.5, 4.0};
+#define NUM_BOUNDS (sizeof(size_bound) / sizeof(size_bound[0]))
+
 void
 root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
 			double alpha_proj)
@@ -289,15 +292,23 @@ root_sieve_run_deg6(poly_stage2_t *data, double curr_norm,
 
 	rs->root_heap.extra = data; /* FIXME */
 	rs->root_heap.num_entries = 0;
-	rs->max_norm = exp(-alpha_proj) * MIN(1.05 * curr_norm,
-					data->max_norm);
 	rs->dbl_p = mpz_get_d(c->gmp_p);
 	rs->dbl_d = mpz_get_d(c->gmp_d);
 	rs->apoly.degree = data->degree;
 	for (i = 0; i <= data->degree; i++)
 		rs->apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 
-	sieve_xyz_run(rs);
+	for (i = 0; i < NUM_BOUNDS; i++) {
+		double bound = MIN(size_bound[i] * curr_norm,
+						data->max_norm);
+
+		rs->max_norm = exp(-alpha_proj) * bound;
+
+		sieve_xyz_run(rs);
+
+		if (bound == data->max_norm)
+			break;
+	}
 
 	for (i = 0; i < rs->root_heap.num_entries; i++) {
 		mp_rotation_t *r = rs->root_heap.mp_entries + i;

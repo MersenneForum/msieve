@@ -636,8 +636,6 @@ sieve_xy_run(root_sieve_t *rs)
 				xy->mp_lattice_size);
 
 		xy->curr_score = lattice_xyz->score + lattice_xy->score;
-		printf("-------------- %u (%u)\n", xy->curr_score,
-				curr_plane->which_z_block);
 		rs->curr_z = z_base + lattice_xyz->z; 
 
 		sieve_x_run(rs);
