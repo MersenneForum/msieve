@@ -220,7 +220,7 @@ typedef struct {
 	mpz_t crt0;
 	mpz_t crt1;
 	mpz_t resclass;
-	mpz_t tmp1, tmp2, tmp3, tmp4;
+	mpz_t tmp1;
 } sieve_x_t;
 
 void sieve_x_alloc(sieve_x_t *x);
