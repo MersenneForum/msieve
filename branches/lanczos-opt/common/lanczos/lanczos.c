@@ -752,35 +752,54 @@ static void dump_lanczos_state(msieve_obj *obj,
 			uint32 s[2][64], uint32 dim1) {
 
 	char buf[256];
+	char buf_old[256];
 	FILE *dump_fp;
+	uint32 status = 1;
 
-	sprintf(buf, "%s.chk", obj->savefile.name);
+	sprintf(buf, "%s.chk0", obj->savefile.name);
+	sprintf(buf_old, "%s.chk", obj->savefile.name);
 	dump_fp = fopen(buf, "wb");
 	if (dump_fp == NULL) {
 		printf("error: cannot open matrix checkpoint file\n");
 		exit(-1);
 	}
 
-	fwrite(&n, sizeof(uint32), (size_t)1, dump_fp);
-	fwrite(&dim_solved, sizeof(uint32), (size_t)1, dump_fp);
-	fwrite(&iter, sizeof(uint32), (size_t)1, dump_fp);
+	status &= (fwrite(&n, sizeof(uint32), (size_t)1, dump_fp)==1);
+	status &= (fwrite(&dim_solved, sizeof(uint32), (size_t)1, dump_fp)==1);
+	status &= (fwrite(&iter, sizeof(uint32), (size_t)1, dump_fp)==1);
 
-	fwrite(vt_a_v[1], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(vt_a2_v[1], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(winv[1], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(winv[2], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(vt_v0[0], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(vt_v0[1], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(vt_v0[2], sizeof(uint64), (size_t)64, dump_fp);
-	fwrite(s[1], sizeof(uint32), (size_t)64, dump_fp);
-	fwrite(&dim1, sizeof(uint32), (size_t)1, dump_fp);
+	status &= (fwrite(vt_a_v[1], sizeof(uint64), (size_t)64, dump_fp)==64);
+	status &= (fwrite(vt_a2_v[1], sizeof(uint64), (size_t)64, dump_fp)==64);
+	status &= (fwrite(winv[1], sizeof(uint64), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(winv[2], sizeof(uint64), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(vt_v0[0], sizeof(uint64), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(vt_v0[1], sizeof(uint64), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(vt_v0[2], sizeof(uint64), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(s[1], sizeof(uint32), (size_t)64, dump_fp) == 64);
+	status &= (fwrite(&dim1, sizeof(uint32), (size_t)1, dump_fp) == 1);
 
-	fwrite(x, sizeof(uint64), (size_t)n, dump_fp);
-	fwrite(v[0], sizeof(uint64), (size_t)n, dump_fp);
-	fwrite(v[1], sizeof(uint64), (size_t)n, dump_fp);
-	fwrite(v[2], sizeof(uint64), (size_t)n, dump_fp);
-	fwrite(v0, sizeof(uint64), (size_t)n, dump_fp);
+	status &= (fwrite(x, sizeof(uint64), (size_t)n, dump_fp) == n);
+	status &= (fwrite(v[0], sizeof(uint64), (size_t)n, dump_fp) == n);
+	status &= (fwrite(v[1], sizeof(uint64), (size_t)n, dump_fp) == n);
+	status &= (fwrite(v[2], sizeof(uint64), (size_t)n, dump_fp) == n);
+	status &= (fwrite(v0, sizeof(uint64), (size_t)n, dump_fp) == n);
 	fclose(dump_fp);
+
+	/* only delete an old checkpoint file if the current 
+	   checkpoint completed writing. More paranoid: compute a 
+	   cryptographic hash of the file and then verify against 
+	   the disk image */
+
+	if (status == 0) {
+		printf("error: cannot write new checkpoint file\n");
+		printf("error: previous checkpoint file not overwritten\n");
+		exit(-1);
+	}
+	remove(buf_old);
+	if (rename(buf, buf_old)) {
+		printf("error: cannot update checkpoint file\n");
+		exit(-1);
+	}
 }
 
 /*-----------------------------------------------------------------------*/
@@ -905,7 +924,7 @@ static uint64 * block_lanczos_core(msieve_obj *obj,
 	uint32 report_interval = 0;
 	uint32 check_interval = 0;
 	uint32 next_report = 0;
-	uint32 log_ETA_once = 0;
+	uint32 log_eta_once = 0;
 	uint32 next_check = 0;
 	uint32 next_dump = 0;
 	time_t first_time;
@@ -985,9 +1004,11 @@ static uint64 * block_lanczos_core(msieve_obj *obj,
 	}
 
 	if (dump_interval) {
-		next_dump = (dim_solved / dump_interval + 1) * dump_interval;
+		next_dump = (dim_solved / dump_interval + 1) * 
+					dump_interval;
 		check_interval = 10000;
-		next_check = (dim_solved / check_interval + 1) * check_interval;
+		next_check = (dim_solved / check_interval + 1) * 
+					check_interval;
 	}
 
 	/* perform the iteration */
@@ -1103,7 +1124,8 @@ static uint64 * block_lanczos_core(msieve_obj *obj,
 				}
 			}
 			/* check passed */
-			next_check = (dim_solved / check_interval + 1) * check_interval;
+			next_check = (dim_solved / check_interval + 1) * 
+							check_interval;
 			memcpy(v0, vnext, n * sizeof(uint64));
 		}
 
@@ -1208,10 +1230,17 @@ static uint64 * block_lanczos_core(msieve_obj *obj,
 					"%dh%2dm)    \r",
 					dim_solved, n, 100.0 * dim_solved / n,
 					eta / 3600, (eta % 3600) / 60);
-				if(++log_ETA_once == 3)  /* wait 3 intervals for a better ETA */
-				  logprintf(obj, "linear algebra at %1.1f%%, ETA %dh%2dm\n",
-					100.0 * dim_solved / n,
-					eta / 3600, (eta % 3600) / 60);
+
+				/* report the ETA to the logfile once 
+				   (wait 3 intervals for a better ETA) */
+
+				if (++log_eta_once == 3) {
+					logprintf(obj, "linear algebra at "
+						   "%1.1f%%, ETA %dh%2dm\n",
+						100.0 * dim_solved / n,
+						eta / 3600, 
+						(eta % 3600) / 60);
+				}
 				next_report = dim_solved + report_interval;
 				fflush(stderr);
 			}
@@ -1226,7 +1255,8 @@ static uint64 * block_lanczos_core(msieve_obj *obj,
 				dump_lanczos_state(obj, x, vt_v0, v, v0, 
 						   vt_a_v, vt_a2_v, winv, n, 
 						   dim_solved, iter, s, dim1);
-				next_dump = (dim_solved / dump_interval + 1) * dump_interval;
+				next_dump = (dim_solved / dump_interval + 1) * 
+							dump_interval;
 			}
 			if (obj->flags & MSIEVE_FLAG_STOP_SIEVING)
 				break;

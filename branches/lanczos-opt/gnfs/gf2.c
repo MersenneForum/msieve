@@ -595,9 +595,11 @@ void nfs_solve_linear_system(msieve_obj *obj, mp_t *n) {
 		}
 		free(cols);
 
+#if 0
 		/* optimize the layout of large matrices */
 		if (ncols > MIN_REORDER_SIZE)
 			reorder_matrix(obj, &rowperm, &colperm);
+#endif
 	}
 
 	/* read the matrix again; if a permutation was previously

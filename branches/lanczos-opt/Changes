@@ -1,4 +1,45 @@
-Version 1.45:
+Version 1.46:
+	- NFS poly selection changes:
+		- Added a high-performance root sieve for degree 6 problems
+		- Allowed stage 1 and stage 2 to be run separately,
+		  with stage 1 output saved to file and read back in stage 2
+		- For large problems, added a global optimizer that runs
+		  before the conventional size optimization step; this is 
+		  currently not used because it destroys the size property 
+		  of polynomials that leave stage 1 with a good score
+		- Performed an overhaul of the size optimization (thanks 
+		  Paul Zimmermann)
+		- When rating poynomials, remember the number of real roots
+		  (thanks Paul Zimmermann)
+	- Reduced the number of clique removal passes when there is a large
+		amount of excess (thanks Greg Childers)
+	- Optimized the power detection code in the main driver (thanks axn)
+
+
+Version 1.45: 4/21/10
+	- NFS poly selection changes:
+		- Merged the CPU and GPU branches more tightly, and centralized
+		  much of the GPU handling code
+		- Added PTX inline assembly language for a small speedup
+		- Added specialized routines that make poly selection
+		  for inputs < 135 digits about 35% faster
+		- Fixed some degree 5 synchronization issues (thanks
+		  Jayson King)
+		- Tightened up the construction of arithmetic progressions
+		  in stage 1 (thanks Jayson King)
+		- Added code to increase the size of host arrays when using
+		  more powerful GPUs (thanks Paul Zimmermann)
+		- Added code to automatically randomize the search for 
+		  inputs that are large enough
+		- Made the cutoff E-value more aggressive for the largest
+		  jobs (thanks Tom Womack / Paul Leyland / Greg Childers)
+	- Modified the linear algebra to write new checkpoint files first,
+		then overwrite the old checkpoint only if the write completed
+		(thanks Greg Childers)
+	- Cleaned up the makefile a bit
+	- Cleaned up the wording of the makefile usage
+	- Added code to delete the largest temporary file generated during
+		filtering (thanks Greg Childers)
 
 
 Version 1.44: 2/5/10

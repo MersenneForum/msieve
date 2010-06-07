@@ -92,18 +92,19 @@ void print_usage(char *progname) {
 		 "             <name> (default worktodo.ini) instead of\n"
 		 "             from the command line\n"
 		 "   -m        manual mode: enter numbers via standard input\n"
-		 "   -mb <num> # of megabytes of memory for postprocessing \n"
-		 "             (set automatically if unspecified or zero)\n"
+		 "   -mb <num> hint for number of megabytes of memory for\n"
+		 "             postprocessing (set automatically if unspec-\n"
+		 "             ified or zero)\n"
 	         "   -q        quiet: do not generate any log information,\n"
 		 "             only print any factors found\n"
 	         "   -d <min>  deadline: if still sieving after <min>\n"
 		 "             minutes, shut down gracefully (default off)\n"
-		 "   -r <num>  stop after finding <num> relations\n"
+		 "   -r <num>  stop sieving after finding <num> relations\n"
 		 "   -p        run at idle priority\n"
 	         "   -v        verbose: write log information to screen\n"
 		 "             as well as to logfile\n"
 #ifdef HAVE_CUDA
-		 "   -g <num>  use GPU <num>, 0 <= num < (GPUs-1)>\n"
+		 "   -g <num>  use GPU <num>, 0 <= num < (# graphics cards)>\n"
 #endif
 	         "   -t <num>  use at most <num> threads\n\n"
 		 " elliptic curve options:\n"
@@ -118,6 +119,10 @@ void print_usage(char *progname) {
 		 "   -np [X,Y] perform only NFS polynomial selection; if\n"
 		 "             specified, only cover leading coefficients\n"
 		 "             in the range from X to Y inclusive\n"
+		 "   -np1 [X,Y] perform stage 1 of NFS polynomial selection; if\n"
+		 "             specified, only cover leading coefficients\n"
+		 "             in the range from X to Y inclusive\n"
+		 "   -np2      perform stage 2 of NFS polynomial selection\n"
 		 "   -ns [X,Y] perform only NFS sieving; if specified,\n"
 		 "             handle sieve lines X to Y inclusive\n"
 		 "   -nc       perform only NFS combining (all phases)\n"
@@ -130,7 +135,7 @@ void print_usage(char *progname) {
 		 "   -ncr      perform only NFS linear algebra, restarting\n"
 		 "             from a previous checkpoint\n"
 		 "   -nc3 [X,Y] perform only NFS square root (compute \n"
-		 "             dependency numbers X through Y, 1<=X,Y<=64)\n",
+		 "             dependency numbers X through Y, 1<=X<=Y<=64)\n",
 		 MSIEVE_DEFAULT_SAVEFILE, MSIEVE_DEFAULT_LOGFILE,
 		 MSIEVE_DEFAULT_NFS_FBFILE);
 }
@@ -342,7 +347,13 @@ int main(int argc, char **argv) {
 
 			case 'n':
 				if (argv[i][2] == 'p') {
-					flags |= MSIEVE_FLAG_NFS_POLY;
+					if (argv[i][3] == '1')
+						flags |= MSIEVE_FLAG_NFS_POLY1;
+					else if (argv[i][3] == '2')
+						flags |= MSIEVE_FLAG_NFS_POLY2;
+					else
+						flags |= MSIEVE_FLAG_NFS_POLY1 |
+							 MSIEVE_FLAG_NFS_POLY2;
 				}
 				else if (argv[i][2] == 's') {
 					flags |= MSIEVE_FLAG_NFS_SIEVE;
@@ -365,7 +376,8 @@ int main(int argc, char **argv) {
 						     MSIEVE_FLAG_NFS_SQRT;
 				}
 				else if (argv[i][2] == 0) {
-					flags |= MSIEVE_FLAG_NFS_POLY |
+					flags |= MSIEVE_FLAG_NFS_POLY1 |
+						 MSIEVE_FLAG_NFS_POLY2 |
 						 MSIEVE_FLAG_NFS_SIEVE |
 						 MSIEVE_FLAG_NFS_FILTER |
 						 MSIEVE_FLAG_NFS_LA |

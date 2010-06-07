@@ -68,7 +68,9 @@ uint32 factor_gnfs(msieve_obj *obj, mp_t *n,
 	memset(&rat_poly, 0, sizeof(rat_poly));
 	memset(&alg_poly, 0, sizeof(alg_poly));
 	status = read_poly(obj, n, &rat_poly, &alg_poly, &params.skewness);
-	if (status != 0 && (obj->flags & MSIEVE_FLAG_NFS_POLY)) {
+	if (status != 0 && 
+	   (obj->flags & (MSIEVE_FLAG_NFS_POLY1 | 
+			  MSIEVE_FLAG_NFS_POLY2))) {
 		status = find_poly(obj, n);
 		status = read_poly(obj, n, &rat_poly, 
 					&alg_poly, &params.skewness);
@@ -107,9 +109,9 @@ uint32 factor_gnfs(msieve_obj *obj, mp_t *n,
 			   of large primes possible */
 
 			max_relations = 0.8 * (params.rfb_lp_size /
-					log((double)params.rfb_lp_size) +
+					(log((double)params.rfb_lp_size) - 1) +
 					params.afb_lp_size /
-					log((double)params.afb_lp_size));
+					(log((double)params.afb_lp_size) - 1));
 		}
 	}
 
