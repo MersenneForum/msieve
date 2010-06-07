@@ -353,6 +353,10 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 		}
 
 		/* fill stage 1 data */
+	else
+		logprintf(obj,
+			"time limit set to %.2f hours\n",
+			stage1_data.deadline / 3600.0);
 
 		mp2gmp(n, stage1_data.gmp_N);
 		stage1_data.degree = degree;
