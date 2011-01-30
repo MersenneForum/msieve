@@ -504,6 +504,17 @@ static void matrix_thread_init(thread_data_t *t) {
 #ifdef LARGEBLOCKS
 	free(n_in_a_row);
 #endif
+
+#if 1
+	for (i = 0; i < num_col_blocks; i++) {
+		for (j = 0; j < num_row_blocks; j++) {
+			printf("%6u ", t->blocks[
+				i*num_row_blocks + j].num_entries);
+		}
+		printf("\n");
+	}
+	fflush(stdout);
+#endif
 }
 
 /*-------------------------------------------------------------------*/

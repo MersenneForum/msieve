@@ -305,7 +305,7 @@ uint64 reduce_matrix(msieve_obj *obj, uint32 *nrows,
 		uint32 num_dense_rows, uint32 *ncols, 
 		la_col_t *cols, uint32 num_excess);
 
-#define MIN_REORDER_SIZE 200000
+#define MIN_REORDER_SIZE 2000000
 
 void reorder_matrix(msieve_obj *obj, uint32 **rowperm, uint32 **colperm);
 

@@ -690,7 +690,8 @@ void nfs_solve_linear_system(msieve_obj *obj, mp_t *n) {
 			free(cols[i].cycle.list);
 		}
 		free(cols);
-#if 0
+
+#if defined(HAVE_METIS)
 		/* optimize the layout of large matrices */
 		if (ncols > MIN_REORDER_SIZE) {
 
