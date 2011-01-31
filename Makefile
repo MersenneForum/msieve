@@ -371,7 +371,7 @@ mpqs/sieve_core_p4_64_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
 		-c -o $@ mpqs/sieve_core.c
 
 mpqs/sieve_core_core_64_32k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
-	$(CC) $(CFLAGS) $(INC_FLAGS) -march=nocona -DBLOCK_KB=32 
+	$(CC) $(CFLAGS) $(INC_FLAGS) -march=nocona -DBLOCK_KB=32 \
 		-DCPU_CORE -DROUTINE_NAME=qs_core_sieve_core_32k \
 		-c -o $@ mpqs/sieve_core.c
 

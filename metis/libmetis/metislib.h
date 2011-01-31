@@ -43,8 +43,3 @@
 #define rint(x) ((idxtype)((x)+0.5))  /* MSC does not have rint() function */
 #endif
 
-
-#if defined(COMPILER_GCC)
-extern char* strdup (const char *);
-#endif
-
