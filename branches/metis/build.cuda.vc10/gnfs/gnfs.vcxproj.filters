@@ -107,16 +107,7 @@
     <ClCompile Include="..\..\gnfs\poly\stage1\stage1_sieve.c">
       <Filter>Source Files\poly\Stage1</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\gnfs\poly\stage1\stage1_sieve_gpu_nosq.c">
-      <Filter>Source Files\poly\Stage1</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\gnfs\poly\stage1\stage1_sieve_gpu_sq.c">
-      <Filter>Source Files\poly\Stage1</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\gnfs\poly\stage2\root_sieve_deg45_x.c">
-      <Filter>Source Files\poly\Stage2</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\gnfs\poly\stage2\root_sieve_deg45_xy.c">
       <Filter>Source Files\poly\Stage2</Filter>
     </ClCompile>
     <ClCompile Include="..\..\gnfs\poly\stage2\root_sieve_line.c">
@@ -125,6 +116,18 @@
     <ClCompile Include="..\..\gnfs\poly\stage2\root_sieve_util.c">
       <Filter>Source Files\poly\Stage2</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\gnfs\poly\stage2\optimize_deg6.c">
+      <Filter>Source Files\poly\Stage2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\gnfs\poly\stage2\root_sieve_deg5_xy.c">
+      <Filter>Source Files\poly\Stage2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\gnfs\poly\stage1\stage1_sieve_gpu_nosq.c">
+      <Filter>Source Files\poly\Stage1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\gnfs\poly\stage1\stage1_sieve_gpu_sq.c">
+      <Filter>Source Files\poly\Stage1</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\gnfs\filter\filter.h">
@@ -132,9 +135,6 @@
     </ClInclude>
     <ClInclude Include="..\..\gnfs\sieve\sieve.h">
       <Filter>Source Files\sieve</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\ap.h">
-      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\batch_factor.h">
       <Filter>Header Files</Filter>
@@ -146,9 +146,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\ddcomplex.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\fastmult.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\common\filter\filter.h">
@@ -167,9 +164,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\mp.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\include\mp_int.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\msieve.h">

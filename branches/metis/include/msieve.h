@@ -30,7 +30,11 @@ extern "C" {
 /* version info */
 
 #define MSIEVE_MAJOR_VERSION 1
-#define MSIEVE_MINOR_VERSION 49
+#define MSIEVE_MINOR_VERSION 50
+
+#ifndef MSIEVE_SVN_VERSION
+#define MSIEVE_SVN_VERSION "unknown"
+#endif
 
 /* The final output from the factorization is a linked
    list of msieve_factor structures, one for each factor
@@ -151,6 +155,8 @@ typedef struct {
 
 	uint32 which_gpu;         /* ordinal ID of GPU to use */
 
+	double target_density;   /* the target number of nonzeros per matrix
+				    column, used in NFS filtering */
 	char *mp_sprintf_buf;    /* scratch space for printing big integers */
 } msieve_obj;
 
@@ -169,7 +175,8 @@ msieve_obj * msieve_obj_new(char *input_integer,
 			    uint32 cache_size2,
 			    uint32 num_threads,
 			    uint32 mem_mb,
-			    uint32 which_gpu);
+			    uint32 which_gpu,
+			    double target_density);
 
 msieve_obj * msieve_obj_free(msieve_obj *obj);
 

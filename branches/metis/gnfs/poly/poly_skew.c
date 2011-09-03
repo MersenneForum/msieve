@@ -39,8 +39,8 @@ static const poly_param_t prebuilt_params_deg4[] = {
 	{ 90, 1.00E+015, 5.00E+014, 3.80E-008},
 	{ 95, 1.00E+016, 1.00E+015, 1.50E-008},
 	{100, 3.10E+017, 4.00E+015, 8.30E-009},
-	{105, 1.00E+018, 1.00E+016, 4.00E-009},
-	{110, 3.00E+018, 4.00E+016, 1.20E-009},
+	{105, 1.00E+018, 1.50E+016, 3.00E-009},
+	{110, 9.00E+018, 5.00E+016, 1.00E-009},
 };
 
 static const poly_param_t prebuilt_params_deg5[] = {
@@ -107,7 +107,7 @@ static const poly_param_t prebuilt_params_deg5[] = {
 	/* contributed by Tom Womack */
 
 	{159, 2.00E+024, 2.00E+022, 1.00E-012},
-	{165, 8.00E+024, 2.00E+023, 4.00E-013},
+	{165, 8.00E+024, 2.00E+023, 5.00E-013},
 	{170, 5.00E+025, 1.58E+024, 1.50E-013},
 
 	/* contributed by Serge Batalov */
@@ -116,6 +116,18 @@ static const poly_param_t prebuilt_params_deg5[] = {
 	{180, 1.80E+027, 5.36E+025, 6.00E-014},
 	{185, 1.00E+028, 3.12E+026, 1.00E-014},
 	{190, 6.00E+028, 1.82E+027, 4.00E-015},
+
+	/* from Tom Womack */
+
+	{197, 1.00E+030, 1.00E+029, 2.00E-015},
+
+	/* only a guess */
+
+	{200, 3.10E+030, 2.10E+029, 1.50E-015},
+	{205, 2.00E+031, 1.50E+030, 5.50E-016},
+	{210, 1.00E+032, 6.50E+030, 1.90E-016},
+	{215, 6.00E+032, 3.75E+031, 7.00E-017},
+	{220, 2.40E+033, 1.60E+032, 3.00E-017},
 };
 
 static const poly_param_t prebuilt_params_deg6[] = {
@@ -125,10 +137,10 @@ static const poly_param_t prebuilt_params_deg6[] = {
 
 	/* contributed by Paul Leyland */
 
- 	{200, 1.00E+026, 1.00E+030, 8.0e-018},
- 	{205, 1.00E+027, 1.00E+031, 6.0e-019},
- 	{230, 3.00E+029, 1.00E+032, 6.0e-019},
- 	{235, 1.50E+030, 1.00E+033, 6.0e-019},
+ 	{200, 1.00E+026, 1.00E+025, 8.0e-018},
+ 	{205, 1.00E+027, 1.00E+026, 6.0e-019},
+ 	{230, 3.00E+029, 1.00E+029, 6.0e-019},
+ 	{235, 1.50E+030, 3.00E+029, 6.0e-019},
 };
 
 /*--------------------------------------------------------------------*/
@@ -380,9 +392,18 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 		if (obj->nfs_lower && obj->nfs_upper)
 			stage1_data.deadline = 0;
 		else
-			logprintf(obj, "time limit set to %.2f hours\n",
+			logprintf(obj, "time limit set to %.2f CPU-hours\n",
 				stage1_data.deadline / 3600.0);
 
+		if(digits >= 110) {
+			/* SB: tried L[1/3,c] fit; it is no better than this */
+			double e0 = exp(-log(10) * (0.0607 * digits + 2.25));
+			logprintf(obj, "expecting poly E from %.2le to %.2le\n",
+				e0, 1.15 * e0);
+			/* seen exceptional polys with +40% but that's */
+			/* very rare. The fit is good for 110..232 digits */
+		}
+ 
 		logprintf(obj, "searching leading coefficients from "
 				"%.0lf to %.0lf\n",
 				mpz_get_d(stage1_data.gmp_high_coeff_begin),
@@ -472,6 +493,9 @@ static void find_poly_core(msieve_obj *obj, mp_t *n,
 				continue;
 
 			poly_stage2_run(&stage2_data, ad, p, m, 1e100, arg);
+
+			if (obj->flags & MSIEVE_FLAG_STOP_SIEVING)
+				break;
 		}
 
 		mpz_clear(ad);

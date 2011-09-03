@@ -14,7 +14,6 @@ $Id$
 
 #include "stage2.h"
 
-#define LATTICE_HEAP_SIZE 20
 #define MAX_SIEVE_PRIME_POWER 1000
 
 /*-------------------------------------------------------------------------*/
@@ -149,20 +148,34 @@ save_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
 }
 
 /*-------------------------------------------------------------------------*/
-static const double size_bound[] = {1.05, 1.5, 4.0, 50.0, 100.0};
+typedef struct {
+	double max_norm;
+	double line_min;
+	double line_max;
+	uint64 lattice_size;
+} bound_t;
 
-#define NUM_BOUNDS (sizeof(size_bound) / \
-			sizeof(size_bound[0]))
+#define MAX_BOUNDS 5
 
 void
-root_sieve_run_core(poly_stage2_t *data, double curr_norm,
+root_sieve_run_core(poly_stage2_t *data, double initial_norm,
 			double alpha_proj)
 {
 	uint32 i;
+	msieve_obj *obj = data->obj;
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	root_sieve_t *rs = &s->root_sieve;
 	curr_poly_t *c = &s->curr_poly;
+	double alpha_bias = exp(-alpha_proj);
+	uint32 num_bounds;
+	bound_t bounds[MAX_BOUNDS];
+	double norm_multiple = 1.01;
+	double curr_norm;
+	double line_min, line_max;
+	double direction[3] = {0};
+	double max_norm;
 
+	rs->data = data;
 	rs->root_heap.num_entries = 0;
 	rs->dbl_p = mpz_get_d(c->gmp_p);
 	rs->dbl_d = mpz_get_d(c->gmp_d);
@@ -170,25 +183,103 @@ root_sieve_run_core(poly_stage2_t *data, double curr_norm,
 	for (i = 0; i <= data->degree; i++)
 		rs->apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
 
-	for (i = 0; i < NUM_BOUNDS; i++) {
-		double bound = MIN(size_bound[i] * curr_norm,
-						data->max_norm);
+	direction[data->degree - 4] = 1.0;
+	rs->xyzdata.lattice_size = 1;
+	mpz_set_ui(rs->xydata.mp_lattice_size, 1);
+	mpz_set_ui(rs->xdata.mp_lattice_size, 1);
+	line_min = -10;
+	line_max = 10;
+	max_norm = MIN(data->max_norm, 100 * initial_norm);
 
-		rs->max_norm = exp(-alpha_proj) * bound;
+	num_bounds = 0;
+	for (curr_norm = 0; curr_norm < max_norm;
+			norm_multiple *= 1.10) {
 
-		if (data->degree == 6)
-			sieve_xyz_run_deg6(rs);
-		else
-			sieve_xy_run_deg45(rs, data->degree);
+		uint64 lattice_size = 1;
+		bound_t tmp_bound;
 
-		if (bound == data->max_norm)
+		curr_norm = initial_norm * norm_multiple;
+		if (curr_norm > max_norm)
+			curr_norm = max_norm;
+
+		tmp_bound.max_norm = alpha_bias * curr_norm;
+		compute_line_size(tmp_bound.max_norm,
+				&rs->apoly, rs->dbl_p, rs->dbl_d,
+				direction, line_min, line_max,
+				&line_min, &line_max);
+
+		if (line_min >= line_max) {
+			line_min = -10;
+			line_max = 10;
+			if (curr_norm == max_norm)
+				break;
+			else
+				continue;
+		}
+		tmp_bound.line_min = line_min;
+		tmp_bound.line_max = line_max;
+
+		switch (data->degree) {
+		case 4:
+			lattice_size = 
+				find_lattice_size_x(rs->xydata.mp_lattice_size,
+						line_max - line_min);
 			break;
+		case 5:
+			lattice_size = 
+				find_lattice_size_y(line_max - line_min);
+			break;
+		case 6: 
+			lattice_size = 
+				find_lattice_size_z(line_max - line_min);
+			break;
+		}
+
+		if (num_bounds == 0 ||
+		    lattice_size > bounds[num_bounds - 1].lattice_size) {
+
+			if (num_bounds < MAX_BOUNDS)
+				num_bounds++;
+		}
+
+		tmp_bound.lattice_size = lattice_size;
+		bounds[num_bounds - 1] = tmp_bound;
 	}
 
+	for (i = 0; i < num_bounds; i++) {
+		bound_t *curr_bound = bounds + i;
+
+		rs->max_norm = curr_bound->max_norm;
+		switch (data->degree) {
+		case 4:
+			sieve_x_run_deg4(rs, curr_bound->lattice_size,
+					curr_bound->line_min,
+					curr_bound->line_max);
+			break;
+		case 5:
+			sieve_xy_run_deg5(rs, curr_bound->lattice_size,
+					curr_bound->line_min,
+					curr_bound->line_max);
+			break;
+		case 6:
+			sieve_xyz_run_deg6(rs, curr_bound->lattice_size,
+					curr_bound->line_min,
+					curr_bound->line_max);
+			break;
+		}
+
+		if (obj->flags & MSIEVE_FLAG_STOP_SIEVING)
+			return;
+	}
+
+	printf("\n");
 	for (i = 0; i < rs->root_heap.num_entries; i++) {
 		rotation_t *r = rs->root_heap.entries + i;
 
 		optimize_final(r->x, r->y, r->z, data);
+
+		if (obj->flags & MSIEVE_FLAG_STOP_SIEVING)
+			return;
 	}
 }
 
@@ -199,9 +290,8 @@ root_sieve_run(poly_stage2_t *data, double curr_norm, double alpha_proj)
 	stage2_curr_data_t *s = (stage2_curr_data_t *)data->internal;
 	curr_poly_t *c = &s->curr_poly;
 	root_sieve_t *rs = &s->root_sieve;
-	uint32 deg = data->degree;
 
-	init_sieve(c, rs, deg, -alpha_proj);
+	init_sieve(c, rs, data->degree, -alpha_proj);
 
 	root_sieve_run_core(data, curr_norm, alpha_proj);
 }

@@ -16,11 +16,17 @@
 # get overridden by architecture-specific builds)
 CC = gcc -D_FILE_OFFSET_BITS=64
 WARN_FLAGS = -Wall -W
-OPT_FLAGS = -O3 -fomit-frame-pointer -march=athlon-xp -DNDEBUG
 OPT_FLAGS = -O3 -fomit-frame-pointer -march=k8 -DNDEBUG -D_LARGEFILE64_SOURCE
 INC_FLAGS = -I. -Iinclude -Ignfs -Ignfs/poly -Ignfs/poly/stage1 -Imetis
 
-CFLAGS = $(OPT_FLAGS) $(MACHINE_FLAGS) $(WARN_FLAGS)
+# use := instead of = so we only run the following once
+SVN_VERSION := $(shell svnversion .)
+ifeq ($(SVN_VERSION),)
+	SVN_VERSION := unknown
+endif
+
+CFLAGS = $(OPT_FLAGS) $(MACHINE_FLAGS) $(WARN_FLAGS) \
+	 	-DMSIEVE_SVN_VERSION="\"$(SVN_VERSION)\""
 
 # tweak the compile flags
 
@@ -41,14 +47,21 @@ ifeq ($(METIS),1)
 endif
 ifeq ($(CUDA),1)
 	# these environment variables are set in windows
-	# but not in linux; attempt to sample them anyway
 	CUDA_ROOT = $(shell echo $$CUDA_PATH)
 	CUDA_INC_DIR = $(CUDA_ROOT)include
 	CUDA_LIB_DIR = $(CUDA_ROOT)lib/win32
+
+	# On linux, the include directory seems to be in a
+	# standard place but there is a 32-bit and 64-bit
+	# version of the CUDA driver libs
+	# CUDA_INC_DIR = /usr/local/cuda/include
+	# CUDA_LIB_DIR = /usr/lib
+	# CUDA_LIB_DIR = /usr/lib64
+
 	CFLAGS += -DHAVE_CUDA
 	INC_FLAGS += -I"$(CUDA_INC_DIR)"
 
-	# Also, the CUDA driver library has a different name in linux
+	# the CUDA driver library has a different name in linux
 	LIBS += "$(CUDA_LIB_DIR)/cuda.lib"
 	# LIBS += -lcuda
 endif
@@ -204,9 +217,10 @@ NFS_SRCS = \
 	gnfs/poly/stage1/stage1_roots.c \
 	gnfs/poly/stage1/stage1_sieve.c \
 	gnfs/poly/stage2/optimize.c \
+	gnfs/poly/stage2/optimize_deg6.c \
 	gnfs/poly/stage2/root_sieve.c \
 	gnfs/poly/stage2/root_sieve_deg45_x.c \
-	gnfs/poly/stage2/root_sieve_deg45_xy.c \
+	gnfs/poly/stage2/root_sieve_deg5_xy.c \
 	gnfs/poly/stage2/root_sieve_deg6_x.c \
 	gnfs/poly/stage2/root_sieve_deg6_xy.c \
 	gnfs/poly/stage2/root_sieve_deg6_xyz.c \

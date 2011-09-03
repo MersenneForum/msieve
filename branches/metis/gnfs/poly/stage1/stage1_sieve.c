@@ -14,11 +14,20 @@ $Id$
 
 #include <stage1.h>
 
+/* wrapper for the collision search. Depending on build
+   options, the collision search may be performed either
+   via a hashtable method on the CPU or via a massively
+   parallel all-against-all method on nvidia GPU cards. */
+
 /*------------------------------------------------------------------------*/
 void
 handle_collision(poly_search_t *poly, uint32 p1, uint32 p2,
 		uint32 special_q, uint64 special_q_root, uint128 res)
 {
+	/* the proposed rational coefficient is p1*p2*special_q;
+	   all these pieces must be coprime. The 'trivial
+	   special q' has special_q = 1 and special_q_root = 0 */
+
 	if (mp_gcd_1(special_q, p1) != 1 ||
 	    mp_gcd_1(special_q, p2) != 1 ||
 	    mp_gcd_1(p1, p2) != 1)
@@ -28,9 +37,9 @@ handle_collision(poly_search_t *poly, uint32 p1, uint32 p2,
 	mpz_mul_ui(poly->p, poly->p, (unsigned long)p2);
 	mpz_mul_ui(poly->p, poly->p, (unsigned long)special_q);
 
-	mpz_gcd(poly->tmp3, poly->p, poly->high_coeff);
-	if (mpz_cmp_ui(poly->tmp3, 1))
-		return;
+	/* the corresponding correction to trans_m0 is 
+	   special_q_root + res * special_q^2 - sieve_size,
+	   and can be positive or negative */
 
 	uint64_2gmp(special_q_root, poly->tmp1);
 	mpz_import(poly->tmp2, 4, -1, sizeof(uint32), 0, 0, &res);
@@ -39,46 +48,62 @@ handle_collision(poly_search_t *poly, uint32 p1, uint32 p2,
 	mpz_mul(poly->tmp3, poly->tmp3, poly->tmp3);
 	mpz_addmul(poly->tmp1, poly->tmp2, poly->tmp3);
 	mpz_sub(poly->tmp1, poly->tmp1, poly->mp_sieve_size);
-	mpz_add(poly->m0, poly->trans_m0, poly->tmp1);
+	mpz_add(poly->m, poly->trans_m0, poly->tmp1);
 
-	/* check */
-	mpz_pow_ui(poly->tmp1, poly->m0, (mp_limb_t)poly->degree);
+	/* a lot can go wrong before this function is called!
+	   Check that Kleinjung's modular condition is satisfied */
+
+	mpz_pow_ui(poly->tmp1, poly->m, (mp_limb_t)poly->degree);
 	mpz_mul(poly->tmp2, poly->p, poly->p);
 	mpz_sub(poly->tmp1, poly->trans_N, poly->tmp1);
 	mpz_tdiv_r(poly->tmp3, poly->tmp1, poly->tmp2);
 	if (mpz_cmp_ui(poly->tmp3, (mp_limb_t)0)) {
 		gmp_printf("poly %Zd %Zd %Zd\n",
-				poly->high_coeff, poly->p, poly->m0);
+				poly->high_coeff, poly->p, poly->m);
 		printf("crap\n");
 		return;
 	}
 
+	/* the pair works, now translate the computed m back
+	   to the original polynomial. We have
+
+	   computed_m = degree * high_coeff * real_m +
+	   			(second_highest_coeff) * p
+
+	   and need to solve for real_m and second_highest_coeff.
+	   Per the CADO code: reducing the above modulo
+	   degree*high_coeff causes the first term on the right
+	   to disappear, so second_highest_coeff can be found
+	   modulo degree*high_coeff and real_m then follows */
+
 	mpz_mul_ui(poly->tmp1, poly->high_coeff, (mp_limb_t)poly->degree);
-	mpz_tdiv_qr(poly->m0, poly->tmp2, poly->m0, poly->tmp1);
-	mpz_invert(poly->tmp3, poly->tmp1, poly->p);
+	mpz_tdiv_r(poly->tmp2, poly->m, poly->tmp1);
+	mpz_invert(poly->tmp3, poly->p, poly->tmp1);
+	mpz_mul(poly->tmp2, poly->tmp3, poly->tmp2);
+	mpz_tdiv_r(poly->tmp2, poly->tmp2, poly->tmp1);
 
-	mpz_sub(poly->tmp4, poly->tmp3, poly->p);
-	if (mpz_cmpabs(poly->tmp3, poly->tmp4) < 0)
-		mpz_set(poly->tmp4, poly->tmp3);
+	/* make second_highest_coeff as small as possible in
+	   absolute value */
 
-	mpz_sub(poly->tmp5, poly->tmp2, poly->tmp1);
-	if (mpz_cmpabs(poly->tmp2, poly->tmp5) > 0)
-		mpz_add_ui(poly->m0, poly->m0, (mp_limb_t)1);
-	else
-		mpz_set(poly->tmp5, poly->tmp2);
+	mpz_tdiv_q_2exp(poly->tmp3, poly->tmp1, 1);
+	if (mpz_cmp(poly->tmp2, poly->tmp3) > 0) {
+		mpz_sub(poly->tmp2, poly->tmp2, poly->tmp1);
+	}
 
-	mpz_addmul(poly->m0, poly->tmp4, poly->tmp5);
+	/* solve for real_m */
+	mpz_submul(poly->m, poly->tmp2, poly->p);
+	mpz_tdiv_q(poly->m, poly->m, poly->tmp1);
 
 	gmp_printf("poly %Zd %Zd %Zd\n",
-			poly->high_coeff, poly->p, poly->m0);
+			poly->high_coeff, poly->p, poly->m);
 
-	poly->callback(poly->high_coeff, poly->p, poly->m0,
+	poly->callback(poly->high_coeff, poly->p, poly->m,
 			poly->coeff_max, poly->callback_data);
 }
 
 /*------------------------------------------------------------------------*/
-void
-sieve_lattice(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
+double
+sieve_lattice(msieve_obj *obj, poly_search_t *poly, double deadline)
 {
 	uint32 quit = 0;
 	uint32 special_q_min = poly->special_q_min;
@@ -91,13 +116,18 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 			log(poly->p_size_max) / M_LN2,
 			log(poly->sieve_size) / M_LN2);
 
+	/* set up the special q factory; special-q may have 
+	   arbitrary factors, but many small factors are 
+	   preferred since that will allow for many more roots
+	   per special q, so we choose the factors to be as 
+	   small as possible */
+
 	sieve_fb_init(&sieve_special_q, poly,
 			5, special_q_fb_max,
 			1, poly->degree,
 			0);
 
 	L.poly = poly;
-	L.start_time = time(NULL);
 	L.deadline = deadline;
 
 	if (special_q_min == 1) { /* handle trivial case */
@@ -112,6 +142,13 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 
 	if (quit || special_q_max == 1)
 		goto finished;
+
+	/* if special q max is more than P_SCALE times special q
+	   min, then we split the range into P_SCALE-sized parts
+	   and search them individually to keep the size of the
+	   leading rational coefficient close to its target size.
+	   The size of the other factors of the leading rational
+	   coefficient are scaled appropriately */
 
 	while (1) {
 
@@ -137,4 +174,5 @@ sieve_lattice(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 
 finished:
 	sieve_fb_free(&sieve_special_q);
+	return deadline - L.deadline;
 }

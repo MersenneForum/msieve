@@ -1,6 +1,50 @@
-Version 1.49:
+Version 1.50:
+	- NFS polynomial selection changes:
+		- Added a second size optimization pass when searching for
+		  degree 6 polynomials. This makes stage 2 much more
+		  reliable for very large problems
+		- Fixed a bug translating the degree 6 root sieve to
+		  degree 5
+		- Fixed a long-standing problem initializing the root
+		  sieve so that it will correctly detect roots modulo
+		  small prime powers
+		- Patches from Jayson King: use a custom hashtable structure
+		  to greatly speed up the stage 1 CPU code
+		- Patches from Jayson King: use a sieve to find larger 
+		  leading algebraic coefficients
+		- Patch from Jayson King: allow stage 2 to be interrupted
+		  with Ctrl-C
+		- Fixed a bug that would cause -np1 to generate lots of
+		  spurious hits in the GPU version when the sieve size is
+		  larger than 127 bits
+	- Patch from Jayson King: fix longstanding problems that would
+		crop up rarley in tinyQS code
 
-Version 1.48:
+
+Version 1.49: 6/16/11
+	- Generalized the degree 6 root sieve to also handle degree
+		4 and 5. This makes stage 2 of NFS polyomial selection
+		hugely faster for very large problems
+	- Allowed the target matrix density within NFS filtering to
+		be specified from the demo binary (multiple people have
+		asked for this and I'd been too lazy to supply it)
+	- Modified the MPI code to flag in-place gather and scatter
+		operations as such (thanks Greg Childers)
+	- Performed a major overhaul of the various Readme files
+	- Fixed an erroneous error check in the MPI code (thanks
+		Ilya Popovyan)
+	- Fixed an MPI race condition in the Lanczos restart code
+		(thanks Jeff Gilchrist)
+	- From Brian Gladman: added build fixes for the latest CUDA tools
+	- Modified the NFS square root to print out factors as they are
+		found (thanks Paul Leyland)
+	- Made the library report the current SVN revision, determined at
+		compile time. This should finally end the confusion about
+		exactly which revision of the demo binary is running 
+	- Added the (current) linux CUDA include and library paths to
+		the Makefile (thanks Paul Leyland)
+
+Version 1.48: 1/8/11
 	- Performed a massive overhaul of the stage 1 NFS polynomial
 		selection, with a huge amount of help from Jayson King.
 		Once this is tuned a little better, polynomial selection
