@@ -30,6 +30,7 @@ typedef struct {
 	mpz_t gmp_c[MAX_POLY_DEGREE + 1];
 	mpz_t gmp_lina[2];
 	mpz_t gmp_linb[2];
+	mpz_t gmp_linc[2];
 	mpz_t gmp_help1;
 	mpz_t gmp_help2;
 	mpz_t gmp_help3;
@@ -59,6 +60,9 @@ uint32 stage2_root_score(uint32 deg1, mpz_t *coeff1,
 
 void optimize_initial(poly_stage2_t *data, double *pol_norm,
 			uint32 skew_only);
+
+double optimize_initial_deg6(double best[MAX_VARS], 
+			curr_poly_t *c, uint32 degree);
 
 void optimize_final(mpz_t x, mpz_t y, int64 z, poly_stage2_t *data);
 
@@ -225,6 +229,8 @@ void sieve_x_free(sieve_x_t *x);
 #define DEFAULT_BLOCK_SIZE  8192
 
 typedef struct {
+	poly_stage2_t *data;
+
 	uint32 num_primes;
 	sieve_prime_t *primes;
 
@@ -253,12 +259,24 @@ void root_sieve_free(root_sieve_t *rs);
 void root_sieve_run(poly_stage2_t *data, double curr_norm,
 				double alpha_proj);
 
-void sieve_xyz_run_deg6(root_sieve_t *rs);
-void sieve_xy_run_deg45(root_sieve_t *rs, uint32 degree);
+uint64 find_lattice_size_z(double line_length);
+void sieve_xyz_run_deg6(root_sieve_t *rs, uint64 lattice_size,
+			double line_min, double line_max);
+
+uint64 find_lattice_size_y(double line_length);
+void sieve_xy_run_deg5(root_sieve_t *rs, uint64 lattice_size,
+			double line_min, double line_max);
 void sieve_xy_run_deg6(root_sieve_t *rs);
-void sieve_x_run_deg45(root_sieve_t *rs);
+
+uint64 find_lattice_size_x(mpz_t prev_lattice_size,
+				double line_length);
+void sieve_x_run_deg4(root_sieve_t *rs, uint64 lattice_size,
+			double line_min, double line_max);
+void sieve_x_run_deg5(root_sieve_t *rs);
 void sieve_x_run_deg6(root_sieve_t *rs);
+
 void root_sieve_line(root_sieve_t *rs);
+
 void save_rotation(root_heap_t *heap, mpz_t x, mpz_t y,
 		int64 z, float score);
 

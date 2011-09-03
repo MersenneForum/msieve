@@ -81,8 +81,9 @@ void get_random_seeds(uint32 *seed1, uint32 *seed2) {
 /*--------------------------------------------------------------------*/
 void print_usage(char *progname) {
 
-	printf("\nMsieve v. %d.%02d\n", MSIEVE_MAJOR_VERSION, 
-					MSIEVE_MINOR_VERSION);
+	printf("\nMsieve v. %d.%02d (SVN %s)\n", MSIEVE_MAJOR_VERSION, 
+					MSIEVE_MINOR_VERSION,
+					MSIEVE_SVN_VERSION);
 
 	printf("\nusage: %s [options] [one_number]\n", progname);
 	printf("\nnumbers starting with '0' are treated as octal,\n"
@@ -110,7 +111,9 @@ void print_usage(char *progname) {
 #ifdef HAVE_CUDA
 		 "   -g <num>  use GPU <num>, 0 <= num < (# graphics cards)>\n"
 #endif
-	         "   -t <num>  use at most <num> threads\n\n"
+	         "   -t <num>  use at most <num> threads\n"
+		 "   -D <num>  make filtering target <num> nonzeros per\n"
+		 "             matrix column (default value if 0)\n\n"
 		 " elliptic curve options:\n"
 		 "   -e        perform 'deep' ECM, seek factors > 15 digits\n\n"
 		 " quadratic sieve options:\n"
@@ -166,7 +169,8 @@ void factor_integer(char *buf, uint32 flags,
 		    uint32 cache_size2,
 		    uint32 num_threads,
 		    uint32 mem_mb,
-		    uint32 which_gpu) {
+		    uint32 which_gpu,
+		    double target_density) {
 	
 	char *int_start, *last;
 	msieve_obj *obj;
@@ -193,7 +197,8 @@ void factor_integer(char *buf, uint32 flags,
 					*seed1, *seed2, max_relations,
 					nfs_lower, nfs_upper, cpu,
 					cache_size1, cache_size2,
-					num_threads, mem_mb, which_gpu);
+					num_threads, mem_mb, which_gpu,
+					target_density);
 	if (g_curr_factorization == NULL) {
 		printf("factoring initialization failed\n");
 		return;
@@ -296,6 +301,7 @@ int main(int argc, char **argv) {
 	uint32 num_threads = 0;
 	uint32 mem_mb = 0;
 	uint32 which_gpu = 0;
+	double target_density = 0;
 		
 	get_cache_sizes(&cache_size1, &cache_size2);
 	cpu = get_cpu_type();
@@ -325,7 +331,7 @@ int main(int argc, char **argv) {
 	buf[0] = 0;
 	while (i < argc) {
 		if (argv[i][0] == (char)('-')) {
-			switch(tolower(argv[i][1])) {
+			switch(argv[i][1]) {
 			case 'h':
 			case '?':
 				print_usage(argv[0]);
@@ -422,11 +428,11 @@ int main(int argc, char **argv) {
 						  strchr(argv[i+1], ',') != 
 						  		NULL ) {
 						char *tmp;
-						nfs_lower = (uint64)strtod(
-							argv[i+1], &tmp);
+						nfs_lower = strtoull(argv[i+1],
+								&tmp, 10);
 						tmp++;
-						nfs_upper = (uint64)strtod(
-							tmp, NULL);
+						nfs_upper = strtoull(tmp,
+								NULL, 10);
 						i++;
 					}
 				}
@@ -464,6 +470,17 @@ int main(int argc, char **argv) {
 			case 't':
 				if (i + 1 < argc && isdigit(argv[i+1][0])) {
 					num_threads = atol(argv[i+1]);
+					i += 2;
+				}
+				else {
+					print_usage(argv[0]);
+					return -1;
+				}
+				break;
+
+			case 'D':
+				if (i + 1 < argc && isdigit(argv[i+1][0])) {
+					target_density = atof(argv[i+1]);
 					i += 2;
 				}
 				else {
@@ -531,7 +548,8 @@ int main(int argc, char **argv) {
 				max_relations, 
 				nfs_lower, nfs_upper, cpu,
 				cache_size1, cache_size2,
-				num_threads, mem_mb, which_gpu);
+				num_threads, mem_mb, 
+				which_gpu, target_density);
 	}
 	else if (manual_mode) {
 		while (1) {
@@ -545,7 +563,8 @@ int main(int argc, char **argv) {
 					max_relations, 
 					nfs_lower, nfs_upper, cpu,
 					cache_size1, cache_size2,
-					num_threads, mem_mb, which_gpu);
+					num_threads, mem_mb, 
+					which_gpu, target_density);
 			if (feof(stdin))
 				break;
 		}
@@ -566,7 +585,8 @@ int main(int argc, char **argv) {
 					max_relations, 
 					nfs_lower, nfs_upper, cpu,
 					cache_size1, cache_size2,
-					num_threads, mem_mb, which_gpu);
+					num_threads, mem_mb, 
+					which_gpu, target_density);
 			if (feof(infile))
 				break;
 		}

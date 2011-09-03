@@ -21,6 +21,9 @@ static uint32
 lift_root_32(uint32 n, uint32 r, uint32 old_power, 
 		uint32 p, uint32 d)
 {
+	/* given r, a d_th root of n mod old_power, compute
+	   the corresponding root mod (old_power*p) via Hensel lifting */
+
 	uint32 q;
 	uint32 p2 = old_power * p;
 	uint64 rsave = r;
@@ -41,10 +44,10 @@ sieve_fb_free(sieve_fb_t *s)
 
 	mpz_clear(s->p);
 	mpz_clear(s->p2);
-	mpz_clear(s->m0);
 	mpz_clear(s->nmodp2);
 	mpz_clear(s->tmp1);
 	mpz_clear(s->tmp2);
+	mpz_clear(s->tmp3);
 	mpz_clear(s->gmp_root);
 }
 
@@ -52,27 +55,30 @@ sieve_fb_free(sieve_fb_t *s)
 static uint32
 get_prime_roots(poly_search_t *poly, uint32 p, uint32 *roots)
 {
+	/* find all nonzero degree_th roots of the transformed 
+	   version of N modulo p. */
+
 	mp_poly_t tmp_poly;
 	mp_t *low_coeff;
 	uint32 high_coeff;
 	uint32 degree = poly->degree;
 
 	memset(&tmp_poly, 0, sizeof(mp_poly_t));
+
+	low_coeff = &tmp_poly.coeff[0].num;
+	low_coeff->nwords = 1;
+	low_coeff->val[0] = mpz_tdiv_ui(poly->trans_N, (mp_limb_t)p);
+
+	if (low_coeff->val[0] == 0)
+		/* when p divides trans_N, only a root of zero
+		   exists, so skip this p */
+		return 0;
+
 	tmp_poly.degree = degree;
 	tmp_poly.coeff[degree].num.nwords = 1;
 	tmp_poly.coeff[degree].num.val[0] = p - 1;
 
-	if (mp_gcd_1(p, (uint32)mpz_tdiv_ui(
-			poly->high_coeff, (mp_limb_t)p)) > 1)
-		return 0;
-
-	low_coeff = &tmp_poly.coeff[0].num;
-	low_coeff->val[0] = mpz_tdiv_ui(poly->trans_N, (mp_limb_t)p);
-	if (low_coeff->val[0])
-		low_coeff->nwords = 1;
-
-	return poly_get_zeros(roots, &tmp_poly, 
-				p, &high_coeff, 0);
+	return poly_get_zeros(roots, &tmp_poly, p, &high_coeff, 0);
 }
 
 /*------------------------------------------------------------------------*/
@@ -87,12 +93,17 @@ sieve_add_aprog(sieve_fb_t *s, poly_search_t *poly, uint32 p,
 	aprog_list_t *list = &s->aprog_data;
 	aprog_t *a;
 
+	/* p will be able to generate arithmetic progressions;
+	   add it to our list of them... */
+
 	if (list->num_aprogs == list->num_aprogs_alloc) {
 		list->num_aprogs_alloc *= 2;
 		list->aprogs = (aprog_t *)xrealloc(list->aprogs,
 						list->num_aprogs_alloc *
 						sizeof(aprog_t));
 	}
+
+	/* ...if trans_N has any degree_th roots mod p */
 
 	a = list->aprogs + list->num_aprogs;
 	a->p = p;
@@ -107,6 +118,8 @@ sieve_add_aprog(sieve_fb_t *s, poly_search_t *poly, uint32 p,
 	a->num_roots = num_roots;
 	for (i = 0; i < num_roots; i++)
 		a->roots[0][i] = roots[i];
+
+	/* add powers of p as well */
 
 	power = p;
 	a->power[0] = power;
@@ -142,10 +155,10 @@ sieve_fb_init(sieve_fb_t *s, poly_search_t *poly,
 
 	mpz_init(s->p);
 	mpz_init(s->p2);
-	mpz_init(s->m0);
 	mpz_init(s->nmodp2);
 	mpz_init(s->tmp1);
 	mpz_init(s->tmp2);
+	mpz_init(s->tmp3);
 	mpz_init(s->gmp_root);
 
 	if (factor_max <= factor_min)
@@ -158,9 +171,9 @@ sieve_fb_init(sieve_fb_t *s, poly_search_t *poly,
 	for (i = p = 0; i < PRECOMPUTED_NUM_PRIMES; i++) {
 		p += prime_delta[i];
 
-		if (p <= factor_min)
+		if (p < factor_min)
 			continue;
-		else if (p >= factor_max)
+		else if (p > factor_max)
 			break;
 
 		sieve_add_aprog(s, poly, p, fb_roots_min, fb_roots_max);
@@ -176,8 +189,6 @@ sieve_fb_reset(sieve_fb_t *s, uint32 p_min, uint32 p_max,
 	aprog_t *aprogs = s->aprog_data.aprogs;
 	uint32 num_aprogs = s->aprog_data.num_aprogs;
 
-	free_prime_sieve(&s->p_prime);
-
 	if (num_roots_max > MAX_ROOTS) {
 		printf("error: num_roots_max exceeds %d\n", MAX_ROOTS);
 		exit(-1);
@@ -188,6 +199,40 @@ sieve_fb_reset(sieve_fb_t *s, uint32 p_min, uint32 p_max,
 	s->num_roots_min = num_roots_min;
 	s->num_roots_max = num_roots_max;
 	s->avail_algos = 0;
+
+	if (num_roots_max == 0) {
+		/* nothing to do */
+		return;
+	}
+
+	/* set up for finding arithmetic progressions by
+	   enumerating combinations of small factors p_i
+	   from the aprog list */
+
+	if (num_aprogs > 0) {
+		p_enum_t *p_enum = &s->p_enum; 
+
+		s->avail_algos |= ALGO_ENUM;
+
+		/* clear the enum state */
+
+		p_enum->curr_factor[0] = 0;
+		p_enum->num_factors = 0;
+		p_enum->curr_power[0] = 0;
+		p_enum->curr_prod[0] = 1;
+		p_enum->curr_num_roots[0] = 1;
+
+		for (i = 0; i < num_aprogs; i++) {
+			aprog_t *a = aprogs + i;
+
+			a->cofactor_max = p_max / a->p;
+		}
+	}
+
+	/* set up for finding arithmetic progressions where
+	   p is a large prime exceeding factor_max; do so if
+	   that's allowed and the range of such p is higher
+	   than what's already in the aprog list */
 
 	if (s->fb_only == 0 &&
 	    p_min < P_PRIME_LIMIT &&
@@ -202,27 +247,9 @@ sieve_fb_reset(sieve_fb_t *s, uint32 p_min, uint32 p_max,
 		if (p_max > last_p) {
 			s->avail_algos |= ALGO_PRIME;
 
+			free_prime_sieve(&s->p_prime);
 			init_prime_sieve(&s->p_prime, MAX(p_min, last_p + 1),
 					 MIN(p_max, P_PRIME_LIMIT));
-		}
-	}
-
-	if (num_aprogs > 0) {
-		p_enum_t *p_enum = &s->p_enum; 
-
-		s->avail_algos |= ALGO_ENUM;
-
-		p_enum->factors[0] = 0;
-		p_enum->num_factors = 0;
-		p_enum->powers[0] = 0;
-		p_enum->cofactors[0] = 1;
-		p_enum->cofactor_roots[0] = 1;
-
-		for (i = 0; i < num_aprogs; i++) {
-			aprog_t *a = aprogs + i;
-
-			a->cofactor_max = p_max / a->p;
-			a->cofactor_roots_max = num_roots_max / a->num_roots;
 		}
 	}
 }
@@ -231,6 +258,13 @@ sieve_fb_reset(sieve_fb_t *s, uint32 p_min, uint32 p_max,
 static void
 lift_roots(sieve_fb_t *s, poly_search_t *poly, uint32 p, uint32 num_roots)
 {
+	/* we have num_roots arithmetic progressions mod p;
+	   convert the progressions to be mod p^2, using
+	   Hensel lifting, and then move the origin of the 
+	   result (trans_m0 - sieve_size) units to the left.  
+	   This means we can 'sieve' up to 2*poly->sieve_size 
+	   units past the new origin */
+
 	uint32 i;
 	unsigned long degree = s->degree;
 
@@ -238,7 +272,7 @@ lift_roots(sieve_fb_t *s, poly_search_t *poly, uint32 p, uint32 num_roots)
 	mpz_mul(s->p2, s->p, s->p);
 	mpz_tdiv_r(s->nmodp2, poly->trans_N, s->p2);
 	mpz_sub(s->tmp1, poly->trans_m0, poly->mp_sieve_size);
-	mpz_tdiv_r(s->m0, s->tmp1, s->p2);
+	mpz_tdiv_r(s->tmp3, s->tmp1, s->p2);
 
 	for (i = 0; i < num_roots; i++) {
 
@@ -257,7 +291,7 @@ lift_roots(sieve_fb_t *s, poly_search_t *poly, uint32 p, uint32 num_roots)
 		mpz_mul(s->tmp1, s->tmp1, s->tmp2);
 		mpz_tdiv_r(s->tmp1, s->tmp1, s->p);
 		mpz_addmul(s->gmp_root, s->tmp1, s->p);
-		mpz_sub(s->gmp_root, s->gmp_root, s->m0);
+		mpz_sub(s->gmp_root, s->gmp_root, s->tmp3);
 		if (mpz_cmp_ui(s->gmp_root, (unsigned long)0) < 0)
 			mpz_add(s->gmp_root, s->gmp_root, s->p2);
 
@@ -267,47 +301,44 @@ lift_roots(sieve_fb_t *s, poly_search_t *poly, uint32 p, uint32 num_roots)
 
 /*------------------------------------------------------------------------*/
 static uint32
-get_enum_roots(sieve_fb_t *s, uint32 p)
+combine_roots(sieve_fb_t *s, uint32 p,
+		uint32 num_factors, uint32 p_i[MAX_P_FACTORS],
+		uint32 num_roots[MAX_P_FACTORS],
+		uint32 roots[MAX_P_FACTORS][MAX_POLYSELECT_DEGREE])
 {
-	uint32 i, j, i0, i1, i2, i3, i4, i5, i6;
-	aprog_t *aprogs = s->aprog_data.aprogs;
-	p_enum_t *p_enum = &s->p_enum;
-	uint32 *factors = p_enum->factors;
-	uint32 *powers = p_enum->powers;
-	uint32 num_factors = p_enum->num_factors;
+	/* given a composite p and its factors p_i,
+	   combine the roots mod p_i into roots mod
+	   p using the Chinese Remainder Theorem */
 
-	uint32 num_roots[MAX_P_FACTORS];
+	uint32 i, i0, i1, i2, i3, i4, i5, i6;
 	uint32 prod[MAX_P_FACTORS];
-	uint32 roots[MAX_P_FACTORS][MAX_POLYSELECT_DEGREE];
 	uint64 accum[MAX_P_FACTORS + 1];
 
-	for (i = 0; i < num_factors; i++) {
-		aprog_t *a = aprogs + factors[i];
+	if (num_factors == 1) { 
+		/* no CRT needed */
 
-		num_roots[i] = a->num_roots;
-		for (j = 0; j < num_roots[i]; j++)
-			roots[i][j] = a->roots[powers[i]][j];
-	}
-
-	if (num_factors == 1) {
 		for (i = 0; i < num_roots[0]; i++)
 			s->roots[i] = roots[0][i];
 
-		return num_roots[0];
+		return MIN(num_roots[0], s->num_roots_max);
 	}
 
-	for (i = 0; i < num_factors; i++) {
-		aprog_t *a = aprogs + factors[i];
+	/* fill in auxiliary CRT quantities */
 
-		prod[i] = p / a->power[powers[i]];
-		prod[i] *= mp_modinv_1(prod[i] % a->power[powers[i]],
-					a->power[powers[i]]);
+	for (i = 0; i < num_factors; i++) {
+		prod[i] = p / p_i[i];
+		prod[i] *= mp_modinv_1(prod[i] % p_i[i], p_i[i]);
 	}
 	accum[i] = 0;
 
 #if MAX_P_FACTORS > 7
 #error "MAX_P_FACTORS exceeds 7"
 #endif
+	/* loop over all combinations of roots, changing one
+	   root at a time. The accumulator value in the innermost
+	   loop will exceed p by a few bits, so we need the
+	   accum array to have wide integers. */
+
 	i0 = i1 = i2 = i3 = i4 = i5 = i6 = i = 0;
 	switch (num_factors) {
 	case 7:
@@ -332,61 +363,109 @@ get_enum_roots(sieve_fb_t *s, uint32 p)
 		for (i0 = num_roots[0] - 1; (int32)i0 >= 0; i0--) {
 			accum[0] = accum[1] + (uint64)prod[0] * roots[0][i0];
 			s->roots[i++] = accum[0] % p;
+
+			if (i == s->num_roots_max)
+				goto finished;
 		}}}}}}}
 	}
 
+finished:
 	return i;
+}
+
+/*------------------------------------------------------------------------*/
+static uint32
+get_enum_roots(sieve_fb_t *s)
+{
+	uint32 i, j;
+	aprog_t *aprogs = s->aprog_data.aprogs;
+	p_enum_t *p_enum = &s->p_enum;
+	uint32 *curr_factor = p_enum->curr_factor;
+	uint32 *curr_power = p_enum->curr_power;
+	uint32 num_factors = p_enum->num_factors;
+	uint32 p = p_enum->curr_prod[num_factors];
+	uint32 p_i[MAX_P_FACTORS];
+	uint32 num_roots[MAX_P_FACTORS];
+	uint32 roots[MAX_P_FACTORS][MAX_POLYSELECT_DEGREE];
+
+	for (i = 0; i < num_factors; i++) {
+		aprog_t *a = aprogs + curr_factor[i];
+
+		/* p_i may be a power */
+
+		p_i[i] = a->power[curr_power[i]];
+		num_roots[i] = a->num_roots;
+		for (j = 0; j < num_roots[i]; j++)
+			roots[i][j] = a->roots[curr_power[i]][j];
+	}
+
+	return combine_roots(s, p, num_factors, p_i, num_roots, roots);
 }
 
 /*------------------------------------------------------------------------*/
 static uint32
 get_next_enum(sieve_fb_t *s)
 {
+	/* find the next p by enumerating combinations of
+	   aprogs p_i. We do this by maintaining a "stack"
+	   of unique chosen p_i which are strictly in
+	   non-increasing order, when read first-to-last.
+	   While maintaining this ordering, and respecting
+	   the maximum size of p, we "push" a new p_i
+	   whenever possible. Otherwise, we "pop" p_i and,
+	   as long as ordering can be maintained, "push"
+	   the successor of the p_i which was last popped.
+	   Multiple copies of the same p_i are combined
+	   together into a single p_i (to simplify the CRT
+	   later).
+
+	   enumeration ends when there are no more aprogs
+	   p_i available to be pushed
+
+	   this method allows the p_i to be recovered
+	   directly by reading the stack; no trial division
+	   is necessary */
+
 	p_enum_t *p_enum = &s->p_enum;
-	uint32 *factors = p_enum->factors;
-	uint32 *powers = p_enum->powers;
-	uint32 *cofactors = p_enum->cofactors;
-	uint32 *cofac_roots = p_enum->cofactor_roots;
+	uint32 *curr_factor = p_enum->curr_factor;
+	uint32 *curr_power = p_enum->curr_power;
+	uint32 *curr_prod = p_enum->curr_prod;
+	uint32 *curr_num_roots = p_enum->curr_num_roots;
 
 	while (1) {
 
 		uint32 i = p_enum->num_factors;
-		uint32 power_up = (i && factors[i] == factors[i - 1]);
-		uint32 num_roots = cofac_roots[i];
+		uint32 power_up = (i && curr_factor[i] == curr_factor[i - 1]);
+		uint32 num_roots = curr_num_roots[i];
 		aprog_t *a = NULL;
 
-		if (factors[i] < s->aprog_data.num_aprogs)
-			a = s->aprog_data.aprogs + factors[i];
+		if (curr_factor[i] < s->aprog_data.num_aprogs)
+			a = s->aprog_data.aprogs + curr_factor[i];
 
-		if (a != NULL && cofactors[i] <= a->cofactor_max
-		    && !(power_up && ++powers[i - 1] >= a->max_power)
-		    && (power_up || (cofac_roots[i] <= a->cofactor_roots_max
-				     && i < MAX_P_FACTORS))) {
+		if (a != NULL && curr_prod[i] <= a->cofactor_max
+		    && !(power_up && ++curr_power[i - 1] >= a->max_power)
+		    && (power_up || i < MAX_P_FACTORS)) {
 
-			uint32 p = cofactors[i] * a->p;
+			uint32 p = curr_prod[i] * a->p;
 
 			if (!power_up) {
 				p_enum->num_factors = ++i;
 				num_roots *= a->num_roots;
-				cofac_roots[i] = num_roots;
+				curr_num_roots[i] = num_roots;
 			}
 
-			cofactors[i] = p;
-			factors[i] = 0;
-			powers[i] = 0;
+			curr_prod[i] = p;
+			curr_factor[i] = 0;
+			curr_power[i] = 0;
 
 			if (p >= s->p_min && num_roots >= s->num_roots_min)
 				return p;
 		}
 		else if (i) {
 
-			while (--i) {
-				if (factors[i] != factors[i - 1])
-					break;
-			}
-
-			factors[i]++;
-			powers[i] = 0;
+			i--;
+			curr_factor[i]++;
+			curr_power[i] = 0;
 			p_enum->num_factors = i;
 		}
 		else {
@@ -400,10 +479,15 @@ uint32
 sieve_fb_next(sieve_fb_t *s, poly_search_t *poly,
 		root_callback callback, void *extra)
 {
+	/* main external interface */
+
 	uint32 i, p, num_roots;
 
 	while (1) {
 		if (s->avail_algos & ALGO_ENUM) {
+
+			/* first attempt to find a p by 
+			   combining smaller suitable aprogs p_i */
 
 			p = get_next_enum(s);
 
@@ -412,9 +496,11 @@ sieve_fb_next(sieve_fb_t *s, poly_search_t *poly,
 				continue;
 			}
 
-			num_roots = get_enum_roots(s, p);
+			num_roots = get_enum_roots(s);
 		}
 		else if (s->avail_algos & ALGO_PRIME) {
+
+			/* then try to find a large prime p */
 
 			uint32 roots[MAX_POLYSELECT_DEGREE];
 
@@ -426,10 +512,10 @@ sieve_fb_next(sieve_fb_t *s, poly_search_t *poly,
 			}
 
 			num_roots = get_prime_roots(poly, p, roots);
+			num_roots = MIN(num_roots, s->num_roots_max);
 
 			if (num_roots == 0 ||
-			    num_roots < s->num_roots_min ||
-			    num_roots > s->num_roots_max)
+			    num_roots < s->num_roots_min)
 				continue;
 
 			for (i = 0; i < num_roots; i++)
@@ -438,6 +524,10 @@ sieve_fb_next(sieve_fb_t *s, poly_search_t *poly,
 		else {
 			return P_SEARCH_DONE;
 		}
+
+		/* p found; generate all the arithmetic
+		   progressions it allows and postprocess the
+		   whole batch */
 
 		lift_roots(s, poly, p, num_roots);
 		callback(p, num_roots, s->roots, extra);
