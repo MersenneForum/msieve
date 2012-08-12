@@ -1,0 +1,20 @@
+This is a copy of the git stable branch of Sean Baxter's 'mgpusort'
+library (www.moderngpu.com). The initial commit provides extremely
+fast radix sorting, plus a correctness/throughput test and a tool
+for composing smaller radix sorts for optimal performance.
+
+The major differences from the original MGPU codebase are as follows:
+
+- removed the rest of the MGPU toolkit
+- turned on all the bells and whistles in the test program
+- removed code comparing mgpusort with other sorting packages
+- added a few workarounds for non-Fermi GPUs. This doesn't 
+  work yet (in particular the histogram kernels need to reduce
+  their shared memory footprint to fit on non-Fermi cards)
+
+Near future plans are as follows:
+
+- modify the code to handle 64-bit keys; this is a necessity
+  for GNFS polynomial selection
+- modify the code for increased efficiency on simultaneous
+  sorts of disparate arrays
