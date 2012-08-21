@@ -49,7 +49,7 @@ sort_engine_run(void * e, sort_data_t * data)
 	// arrays are assumed packed together; check
 	// they would all start on a power-of-two boundary
 
-	if (data->num_elements % 16) {
+	if (data->num_arrays > 1 && data->num_elements % 16) {
 		printf("sort_engine: invalid array size\n");
 		exit(-1);
 	}
