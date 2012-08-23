@@ -15,9 +15,6 @@ typedef unsigned int uint32;
 	typedef unsigned long long uint64;
 #endif
 
-typedef uint64 KEY_TYPE;
-typedef uint32 DATA_TYPE;
-
 using namespace b40c;
 
 typedef struct
@@ -54,29 +51,28 @@ sort_engine_run(void * e, sort_data_t * data)
 		exit(-1);
 	}
 
-	if (data->sort_keys_only) {
+	if (data->key_bits == 64) {
 		for (size_t i = 0; i < data->num_arrays; i++) {
 
 			cudaError_t status;
-			util::DoubleBuffer<KEY_TYPE> ptrs;
+			util::DoubleBuffer<uint64, uint32> ptrs;
 
-			ptrs.d_keys[0] = (KEY_TYPE *)data->keys_in +
+			ptrs.d_keys[0] = (uint64 *)data->keys_in +
 						i * data->num_elements;
-			ptrs.d_keys[1] = (KEY_TYPE *)data->keys_in_scratch +
+			ptrs.d_keys[1] = (uint64 *)data->keys_in_scratch +
+						i * data->num_elements;
+			ptrs.d_values[0] = (uint32 *)data->data_in +
+						i * data->num_elements;
+			ptrs.d_values[1] = (uint32 *)data->data_in_scratch +
 						i * data->num_elements;
 
-			if (data->num_elements < 32000) {
-				status = engine->enactor.Sort<radix_sort::SMALL_PROBLEM, 
-				       		8 * sizeof(KEY_TYPE), 0>(ptrs, data->num_elements);
-			}
-			else {
-				status = engine->enactor.Sort<radix_sort::LARGE_PROBLEM, 
-				       		8 * sizeof(KEY_TYPE), 0>(ptrs, data->num_elements);
-			}
-
+			status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		64, 0>(ptrs, data->num_elements);
 			need_swap = (ptrs.selector > 0);
 			if (status != CUDA_SUCCESS) {
-				util::B40CPerror(status, "sort engine: ", __FILE__, __LINE__);
+				util::B40CPerror(status, "sort engine: ", 
+						__FILE__, __LINE__);
 				exit(-1);
 			}
 		}
@@ -85,29 +81,24 @@ sort_engine_run(void * e, sort_data_t * data)
 		for (size_t i = 0; i < data->num_arrays; i++) {
 
 			cudaError_t status;
-			util::DoubleBuffer<KEY_TYPE, DATA_TYPE> ptrs;
+			util::DoubleBuffer<uint32, uint32> ptrs;
 
-			ptrs.d_keys[0] = (KEY_TYPE *)data->keys_in +
+			ptrs.d_keys[0] = (uint32 *)data->keys_in +
 						i * data->num_elements;
-			ptrs.d_keys[1] = (KEY_TYPE *)data->keys_in_scratch +
+			ptrs.d_keys[1] = (uint32 *)data->keys_in_scratch +
 						i * data->num_elements;
-			ptrs.d_values[0] = (DATA_TYPE *)data->data_in +
+			ptrs.d_values[0] = (uint32 *)data->data_in +
 						i * data->num_elements;
-			ptrs.d_values[1] = (DATA_TYPE *)data->data_in_scratch +
+			ptrs.d_values[1] = (uint32 *)data->data_in_scratch +
 						i * data->num_elements;
 
-			if (data->num_elements < 32000) {
-				status = engine->enactor.Sort<radix_sort::SMALL_PROBLEM, 
-				       		8 * sizeof(KEY_TYPE), 0>(ptrs, data->num_elements);
-			}
-			else {
-				status = engine->enactor.Sort<radix_sort::LARGE_PROBLEM, 
-				       		8 * sizeof(KEY_TYPE), 0>(ptrs, data->num_elements);
-			}
-
+			status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		32, 0>(ptrs, data->num_elements);
 			need_swap = (ptrs.selector > 0);
 			if (status != CUDA_SUCCESS) {
-				util::B40CPerror(status, "sort engine: ", __FILE__, __LINE__);
+				util::B40CPerror(status, "sort engine: ", 
+						__FILE__, __LINE__);
 				exit(-1);
 			}
 		}
