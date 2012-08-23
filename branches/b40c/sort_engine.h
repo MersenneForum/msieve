@@ -22,7 +22,6 @@ typedef struct {
 	size_t num_elements;
 	size_t num_arrays;
 	int key_bits;
-	int sort_keys_only;
 } sort_data_t;
 
 typedef void * (*sort_engine_init_func)(void);
