@@ -51,33 +51,7 @@ sort_engine_run(void * e, sort_data_t * data)
 		exit(-1);
 	}
 
-	if (data->key_bits == 64) {
-		for (size_t i = 0; i < data->num_arrays; i++) {
-
-			cudaError_t status;
-			util::DoubleBuffer<uint64, uint32> ptrs;
-
-			ptrs.d_keys[0] = (uint64 *)data->keys_in +
-						i * data->num_elements;
-			ptrs.d_keys[1] = (uint64 *)data->keys_in_scratch +
-						i * data->num_elements;
-			ptrs.d_values[0] = (uint32 *)data->data_in +
-						i * data->num_elements;
-			ptrs.d_values[1] = (uint32 *)data->data_in_scratch +
-						i * data->num_elements;
-
-			status = engine->enactor.Sort<
-					radix_sort::LARGE_PROBLEM, 
-			       		64, 0>(ptrs, data->num_elements);
-			need_swap = (ptrs.selector > 0);
-			if (status != CUDA_SUCCESS) {
-				util::B40CPerror(status, "sort engine: ", 
-						__FILE__, __LINE__);
-				exit(-1);
-			}
-		}
-	}
-	else {
+	if (data->key_bits <= 32) {
 		for (size_t i = 0; i < data->num_arrays; i++) {
 
 			cudaError_t status;
@@ -94,7 +68,80 @@ sort_engine_run(void * e, sort_data_t * data)
 
 			status = engine->enactor.Sort<
 					radix_sort::LARGE_PROBLEM, 
-			       		32, 0>(ptrs, data->num_elements);
+			       		20, 0>(ptrs, data->num_elements);
+			if (status == CUDA_SUCCESS && data->key_bits > 20) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 20>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 25) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 25>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 30) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		2, 30>(ptrs, data->num_elements);
+			}
+
+			need_swap = (ptrs.selector > 0);
+			if (status != CUDA_SUCCESS) {
+				util::B40CPerror(status, "sort engine: ", 
+						__FILE__, __LINE__);
+				exit(-1);
+			}
+		}
+	}
+	else {
+		for (size_t i = 0; i < data->num_arrays; i++) {
+
+			cudaError_t status;
+			util::DoubleBuffer<uint64, uint32> ptrs;
+
+			ptrs.d_keys[0] = (uint64 *)data->keys_in +
+						i * data->num_elements;
+			ptrs.d_keys[1] = (uint64 *)data->keys_in_scratch +
+						i * data->num_elements;
+			ptrs.d_values[0] = (uint32 *)data->data_in +
+						i * data->num_elements;
+			ptrs.d_values[1] = (uint32 *)data->data_in_scratch +
+						i * data->num_elements;
+
+			status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		35, 0>(ptrs, data->num_elements);
+			if (status == CUDA_SUCCESS && data->key_bits > 35) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 35>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 40) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 40>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 45) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 45>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 50) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 50>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 55) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		5, 55>(ptrs, data->num_elements);
+			}
+			if (status == CUDA_SUCCESS && data->key_bits > 60) {
+				status = engine->enactor.Sort<
+					radix_sort::LARGE_PROBLEM, 
+			       		4, 60>(ptrs, data->num_elements);
+			}
+
 			need_swap = (ptrs.selector > 0);
 			if (status != CUDA_SUCCESS) {
 				util::B40CPerror(status, "sort engine: ", 
