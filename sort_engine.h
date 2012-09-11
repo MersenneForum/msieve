@@ -18,6 +18,7 @@ typedef struct {
 	CUdeviceptr keys_in_scratch;
 	CUdeviceptr data_in;
 	CUdeviceptr data_in_scratch;
+	CUstream stream;
 
 	size_t num_elements;
 	size_t num_arrays;
