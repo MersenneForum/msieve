@@ -59,8 +59,7 @@ check_poly(curr_poly_t *c, mpz_t *coeffs, mpz_t lin0,
 
 static int
 pol_expand(curr_poly_t *c, mpz_t gmp_N, mpz_t high_coeff,
-		mpz_t gmp_p, mpz_t gmp_d, 
-		double coeff_bound, uint32 degree)
+		mpz_t gmp_p, mpz_t gmp_d, uint32 degree)
 {
 	uint32 i, j;
 
@@ -136,10 +135,7 @@ pol_expand(curr_poly_t *c, mpz_t gmp_N, mpz_t high_coeff,
 		return 0;
 	}
 
-	if (mpz_cmpabs_d(c->gmp_a[degree - 2], coeff_bound) > 0) {
-		return 1;
-	}
-	return 2;
+	return 1;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -229,11 +225,8 @@ poly_sizeopt_run(poly_sizeopt_t *data, mpz_t ad, mpz_t p, mpz_t d)
 	mpz_neg(c->gmp_lina[0], c->gmp_d);
 	mpz_set(c->gmp_lina[1], c->gmp_p);
 
-	status = pol_expand(c, data->gmp_N, ad, p, d, 
-			data->max_stage1_norm, data->degree);
-	if (status != 2) {
-		if (status == 0)
-			fprintf(stderr, "expand failed\n");
+	if (pol_expand(c, data->gmp_N, ad, p, d, data->degree) == 0) {
+		fprintf(stderr, "expand failed\n");
 		return;
 	}
 

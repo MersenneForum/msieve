@@ -25,6 +25,12 @@ typedef unsigned int uint32;
 typedef unsigned long long uint64;
 typedef long long int64;
 
+/* 128-bit integers */
+
+typedef struct {
+	uint32 w[4];
+} uint128;
+
 /*------------------- Low-level functions ------------------------------*/
 
 __device__ void
@@ -121,19 +127,18 @@ modsub64(uint64 a, uint64 b, uint64 p)
 
 /*------------------------------- GCD --------------------------------*/
 __device__  uint32
-gcd32(uint32 x, uint32 y) {
+gcd64(uint64 x, uint64 y) {
 
 	/* assumes x and y are odd and nonzero */
 
-	uint32 u = x; 
-	uint32 v = y;
+	uint64 u = x;
+	uint64 v = y;
 
 	do {
-		uint32 shift = 31 - __clz(v & -v);
-		v = v >> shift;
+		v >>= __ffsll(v) - 1;
 
-		x = min(u, v);
-		y = max(u, v);
+		x = ullmin(u, v);
+		y = ullmax(u, v);
 		u = x;
 		v = y - x;
 	} while (v != 0);
@@ -349,6 +354,146 @@ montmul64_r(uint64 n, uint32 w) {
 	res = montmul64(res, res, n, w);
 	res = montmul64(res, res, n, w);
 	return montmul64(res, res, n, w);
+}
+
+/*-------------------------- Mod -------------------------------------*/
+
+	/* the following routines implement algorithms
+	   from Ernst W. Mayer's paper "Effecient Long
+	   Division via Montgomery Multiply" */
+
+__device__ uint32
+modwinv_32(uint32 n) { /* compute 1/n mod 2**32 */
+
+	uint32 v = 3 * n ^ 2;
+	v = v * ((uint32)2 - n * v);
+	v = v * ((uint32)2 - n * v);
+	v = v * ((uint32)2 - n * v);
+
+	return v;
+}
+
+__device__ uint64
+modwinv_64(uint64 n) { /* compute 1/n mod 2**64 */
+
+	uint64 v = 3 * n ^ 2;
+	v = v * ((uint64)2 - n * v);
+	v = v * ((uint64)2 - n * v);
+	v = v * ((uint64)2 - n * v);
+	v = v * ((uint64)2 - n * v);
+
+	return v;
+}
+
+__device__ uint32
+mod160t_32(uint32 n) { /* compute 2**160 mod n */
+
+	uint32 t = -n;
+	t = ((uint64)t * t) % n;
+	t = ((uint64)t * t) % n;
+	t = ((uint64)t * -n) % n;
+
+	return t;
+}
+
+__device__ uint64
+mod192t_64(uint64 n) { /* compute 2**192 mod n */
+
+	/* assumes n < 2**63 */
+
+	uint64 a, b, t = 0;
+
+	a = b = -n % n;
+
+	while (a != 0) {
+		if ((a & 1) == 1) {
+			t += b;
+			if (t >= n)
+				t -= n;
+		}
+
+		a >>= 1;
+		b <<= 1;
+		if (b >= n)
+			b -= n;
+	}
+
+	a = t;
+	b = -n % n;
+	t = 0;
+
+	while (a != 0) {
+		if ((a & 1) == 1) {
+			t += b;
+			if (t >= n)
+				t -= n;
+		}
+
+		a >>= 1;
+		b <<= 1;
+		if (b >= n)
+			b -= n;
+	}
+
+	return t;
+}
+
+__device__ uint32
+mod128_32(uint128 num, uint32 v, uint32 t,
+		uint32 n, uint32 w) {
+
+	uint32 x, rem, tmp;
+
+	x = num.w[0];
+	tmp = x * v;
+	rem = __umulhi(tmp, n);
+	x = num.w[1];
+	tmp = x - rem;
+	tmp = tmp * v;
+	if (rem > x)
+		tmp++;
+	rem = __umulhi(tmp, n);
+	x = num.w[2];
+	tmp = x - rem;
+	tmp = tmp * v;
+	if (rem > x)
+		tmp++;
+	rem = __umulhi(tmp, n);
+	x = num.w[3];
+	tmp = x - rem;
+	tmp = tmp * v;
+	if (rem > x)
+		tmp++;
+	rem = __umulhi(tmp, n);
+	rem = montmul32(rem, t, n, w);
+
+	if (rem == 0)
+		return 0;
+	else
+		return n - rem;
+}
+
+__device__  uint64
+mod128_64(uint128 num, uint64 v, uint64 t,
+		uint64 n, uint32 w) {
+
+	uint64 x, rem, tmp;
+
+	x = (uint64)num.w[1] << 32 | num.w[0];
+	tmp = x * v;
+	rem = mul64hi(tmp, n);
+	x = (uint64)num.w[3] << 32 | num.w[2];
+	tmp = x - rem;
+	tmp = tmp * v;
+	if (rem > x)
+		tmp++;
+	rem = mul64hi(tmp, n);
+	rem = montmul64(rem, t, n, w);
+
+	if (rem == 0)
+		return 0;
+	else
+		return n - rem;
 }
 
 #ifdef __cplusplus

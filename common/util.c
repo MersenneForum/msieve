@@ -88,7 +88,7 @@ get_cpu_time(void) {
 	FILETIME kernel_time = {0, 0};
 	FILETIME user_time = {0, 0};
 
-	GetProcessTimes(GetCurrentThread(),
+	GetProcessTimes(GetCurrentProcess(),
 			&create_time,
 			&exit_time,
 			&kernel_time,
@@ -99,11 +99,7 @@ get_cpu_time(void) {
 #else
 	struct rusage r_usage;
 
-	#if 0 /* use for linux 2.6.26+ */
-	getrusage(RUSAGE_THREAD, &r_usage);
-	#else
 	getrusage(RUSAGE_SELF, &r_usage);
-	#endif
 
 	return ((uint64)r_usage.ru_utime.tv_sec * 1000000 +
 	               r_usage.ru_utime.tv_usec) / 1000000.0;
@@ -480,28 +476,16 @@ uint64 get_file_size(char *name) {
 	WIN32_FILE_ATTRIBUTE_DATA tmp;
 
 	if (GetFileAttributesEx((LPCTSTR)name, 
-			GetFileExInfoStandard, &tmp) == 0) {
-		char name_gz[256];
-		sprintf(name_gz, "%s.gz", name);
-		if (GetFileAttributesEx((LPCTSTR)name_gz,
 			GetFileExInfoStandard, &tmp) == 0)
-			return 0;
-
-		return ((uint64)tmp.nFileSizeHigh << 32 | tmp.nFileSizeLow) << 1;
-	}
+		return 0;
 
 	return (uint64)tmp.nFileSizeHigh << 32 | tmp.nFileSizeLow;
 
 #else
 	struct stat tmp;
 
-	if (stat(name, &tmp) != 0) {
-		char name_gz[256];
-		sprintf(name_gz, "%s.gz", name);
-		if (stat(name_gz, &tmp) != 0) 
-			return 0;
-		return (tmp.st_size / 11) * 20;
-	}
+	if (stat(name, &tmp) != 0)
+		return 0;
 
 	return tmp.st_size;
 #endif

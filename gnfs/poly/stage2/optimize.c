@@ -129,6 +129,80 @@ ifs_radial(double *a, uint32 degree, double s)
 	return 1e200;
 }
  
+/*-------------------------------------------------------------------------*/
+static void
+find_rotation_deg5(double *a, double *r, double s, double t, double *rotate)
+{
+	double b[MAX_VARS][MAX_VARS];
+	double b_rhs[MAX_VARS];
+	double s2 = s * s;
+	double s4 = s2 * s2;
+	double s6 = s4 * s2;
+	double t2 = t * t;
+	double t3 = t2 * t;
+	double t4 = t3 * t;
+	double t5 = t4 * t;
+	double t6 = t5 * t;
+	double t7 = t6 * t;
+	double a0 = a[0], a1 = a[1], a2 = a[2];
+	double a3 = a[3], a4 = a[4], a5 = a[5];
+	double r0 = r[0], r1 = r[1];
+
+	b[0][0] = 126.0 * (r0 * r0 + r1 * r1 * t2)
+		+ 14.0 * s2 * r1 * r1
+		- 252.0 * r0 * r1 * t;
+
+	b[0][1] = 28.0 * s2 * r0 * r1
+		- 126.0 * (r0 * r0 * t + r1 * r1 * t3)
+		- 42.0 * s2 * r1 * r1 * t
+		+ 252.0 * r0 * r1 * t2;
+
+	b[1][0] = b[0][1];
+
+	b[1][1] = 14.0 * s2 * r0 * r0
+		+ 6.0 * s4 * r1 * r1
+		+ 84.0 * s2 * (r1 * r1 * t2 - r0 * r1 * t)
+		+ 126.0 * (r0 * r0 * t2 + r1 * r1 * t4)
+		- 252.0 * r0 * r1 * t3;
+
+	b_rhs[0] = 126.0 * (r0 * a1 * t + a0 * r1 * t
+				+ r1 * a2 * t3 + r0 * a3 * t3
+				+ r1 * a4 * t5 + r0 * a5 * t5
+				- a0 * r0 - a1 * r1 * t2
+				- r0 * a2 * t2 - r1 * a3 * t4
+				- r0 * a4 * t4 - r1 * a5 * t6)
+		 - 14.0 * s2 * (a1 * r1 + r0 * a2)
+		 + 140.0 * s2 * t3 * (r1 * a4 + r0 * a5)
+		 - 6.0 * s4 * (r1 * a3 + r0 * a4)
+		 - 6.0 * s6 * r1 * a5
+		 + 42.0 * s2 * t * (r1 * a2 + r0 * a3)
+		 + 30.0 * s4 * t * (r1 * a4 + r0 * a5)
+		 - 84.0 * s2 * t2 * (r1 * a3 + r0 * a4)
+		 - 90.0 * s4 * r1 * a5 * t2
+		 - 210.0 * s2 * r1 * a5 * t4;
+
+	b_rhs[1] = 126.0 * (a0 * r0 * t + a1 * r1 * t3
+				+ r0 * a2 * t3 + r1 * a3 * t5
+				+ r0 * a4 * t5 + r1 * a5 * t7
+				- r0 * a1 * t2 - a0 * r1 * t2
+				- r1 * a2 * t4 - r0 * a3 * t4
+				- r1 * a4 * t6 - r0 * a5 * t6)
+		 - 14.0 * s2 * (r0 * a1 + a0 * r1)
+		 + 140.0 * s2 * t3 * (r1 * a3 + r0 * a4)
+		 - 6.0 * s4 * (r1 * a2 + r0 * a3)
+		 - 6.0 * s6 * (r1 * a4 + r0 * a5)
+		 + 42.0 * s2 * t * (a1 * r1 + r0 * a2)
+		 + 42.0 * s6 * r1 * a5 * t
+		 + 30.0 * s4 * t * (r1 * a3 + r0 * a4)
+		 - 84.0 * s2 * t2 * (r1 * a2 + r0 * a3)
+		 - 90.0 * s4 * t2 * (r1 * a4 + r0 * a5)
+		 - 210.0 * s2 * t4 * (r1 * a4 + r0 * a5)
+		 + 210.0 * s4 * r1 * a5 * t3
+		 + 294.0 * s2 * r1 * a5 * t5;
+
+	solve_dmatrix(b, rotate, b_rhs, 2);
+}
+
 /*----------------------------------------------------------------------*/
 uint32
 stage2_root_score(uint32 deg1, mpz_t *coeff1, 
@@ -269,7 +343,7 @@ static double poly_xlate_callback(double *v, void *extra)
 
 	translate_d(translated, apoly->coeff, apoly->degree, t);
 
-	return ifs_rectangular(translated, apoly->degree, s);
+	return opt->norm_callback(translated, apoly->degree, s);
 }
 
 static double poly_skew_callback(double *v, void *extra)
@@ -335,6 +409,86 @@ static double poly_murphy_callback(double *v, void *extra)
 }
 
 /*-------------------------------------------------------------------------*/
+static double
+optimize_initial_deg5(curr_poly_t *c, double *skewness)
+{
+	/* minimization method of Přemysl Jedlička */
+
+	uint32 deg = 5;
+	uint32 rotate_dim = deg - 4;
+	opt_data_t opt_data;
+	uint32 i, j;
+	uint32 num_minimize = 0;
+	double best[MAX_VARS];
+	double score, last_score, tol;
+	dpoly_t rpoly, apoly;
+	objective_func objective = poly_xlate_callback;
+
+	opt_data.drpoly = &rpoly;
+	opt_data.dapoly = &apoly;
+	opt_data.norm_callback = ifs_radial;
+
+	best[SKEWNESS] = 1000;
+	best[TRANSLATE_SIZE] = 0;
+	best[ROTATE0] = 0;
+	best[ROTATE1] = 0;
+	best[ROTATE2] = 0;
+
+	score = 1e200;
+	tol = 1e-5;
+	rpoly.degree = 1;
+	for (i = 0; i <= 1; i++)
+		rpoly.coeff[i] = mpz_get_d(c->gmp_lina[i]);
+	apoly.degree = deg;
+	for (i = 0; i <= deg; i++)
+		apoly.coeff[i] = mpz_get_d(c->gmp_a[i]);
+
+	do {
+		last_score = score;
+
+		minimize(best, 2, tol, 40, 
+			objective, &opt_data);
+
+		find_rotation_deg5(apoly.coeff, rpoly.coeff, best[SKEWNESS],
+					floor(best[TRANSLATE_SIZE] + 0.5),
+					best + ROTATE0);
+
+		for (j = 0; j <= rotate_dim; j++) {
+			double cj = floor(best[ROTATE0 + j] + 0.5);
+			mpz_set_d(c->gmp_help1, cj);
+			mpz_addmul(c->gmp_a[j+1], c->gmp_help1, 
+					c->gmp_p);
+			mpz_submul(c->gmp_a[j], c->gmp_help1, 
+					c->gmp_d);
+		}
+		translate_gmp(c, c->gmp_a, deg, c->gmp_lina,
+				(int64)(best[TRANSLATE_SIZE] + 0.5));
+
+		mpz_neg(c->gmp_d, c->gmp_lina[0]);
+		for (j = 0; j <= 1; j++)
+			rpoly.coeff[j] = mpz_get_d(c->gmp_lina[j]);
+		for (j = 0; j <= deg; j++)
+			apoly.coeff[j] = mpz_get_d(c->gmp_a[j]);
+		best[TRANSLATE_SIZE] = 0;
+		best[ROTATE0] = 0;
+		best[ROTATE1] = 0;
+		best[ROTATE2] = 0;
+
+		score = opt_data.norm_callback(apoly.coeff, apoly.degree,
+						best[SKEWNESS]);
+		//printf("score %le\n", score);
+
+		if (++num_minimize >= 5)
+			break;
+
+	} while (fabs(score - last_score) > .001 * fabs(score));
+
+	*skewness = best[SKEWNESS];
+
+	return score;
+}
+
+/*-------------------------------------------------------------------------*/
 void
 optimize_initial(curr_poly_t *c, uint32 deg, double *pol_norm, uint32 skew_only)
 {
@@ -361,8 +515,15 @@ optimize_initial(curr_poly_t *c, uint32 deg, double *pol_norm, uint32 skew_only)
 		num_vars = 1;
 		objective = poly_skew_callback;
 	}
+	else if (deg == 5) {
+		score = optimize_initial_deg5(c, &best[SKEWNESS]);
+
+		//printf("preopt %.7e skew %lf\n", score, best[SKEWNESS]);
+	}
 	else if (deg == 6) {
 		score = optimize_initial_deg6(best, c, deg);
+
+		printf("preopt %.7e skew %lf\n", score, best[SKEWNESS]);
 	}
 
 	score = 1e200;
@@ -383,6 +544,7 @@ optimize_initial(curr_poly_t *c, uint32 deg, double *pol_norm, uint32 skew_only)
 			score = minimize(best, num_vars, tol, 40, 
 					objective, &opt_data);
 
+			printf("i %u score %le\n", i, score);
 			for (j = 0; j <= rotate_dim; j++) {
 				double cj = floor(best[ROTATE0 + j] + 0.5);
 				mpz_set_d(c->gmp_help1, cj);
@@ -414,6 +576,7 @@ optimize_initial(curr_poly_t *c, uint32 deg, double *pol_norm, uint32 skew_only)
 			tol = 1e-5;
 			score = ifs_rectangular(apoly.coeff, apoly.degree,
 						best[SKEWNESS]);
+			printf("transition score %le\n", score);
 		}
 	}
 
@@ -437,6 +600,7 @@ optimize_basic(dpoly_t *apoly, double *best_skewness,
 	double score;
 
 	opt_data.dapoly = apoly;
+	opt_data.norm_callback = ifs_rectangular;
 	best[TRANSLATE_SIZE] = 0;
 	best[SKEWNESS] = 1000;
 

@@ -27,6 +27,8 @@ typedef struct {
 
 typedef struct {
 	uint32 p;
+	double p_log;
+	double p_log_inv;
 
 	/* number of 'degree-th roots' of N (mod p) */
 	uint32 num_roots;
@@ -39,7 +41,7 @@ typedef struct {
 
 	/* maximum product of other p which may be
 	   combined with this p */
-	uint32 cofactor_max;
+	uint64 cofactor_max;
 } aprog_t;
 
 typedef struct {
@@ -63,7 +65,8 @@ typedef struct {
 
 	/* the 'running product' of p_1^e_1..p_{i-1}^e_{i-1} for
 	   each i, or 1 if i==1 */
-	uint32 curr_prod[MAX_P_FACTORS + 1];
+	uint64 curr_prod[MAX_P_FACTORS + 1];
+	double curr_prod_log[MAX_P_FACTORS + 1];
 
 	/* number of roots in each 'running product' */
 	uint32 curr_num_roots[MAX_P_FACTORS + 1];
@@ -80,8 +83,8 @@ typedef struct {
 	uint32 avail_algos;
 	uint32 fb_only;
 	uint32 degree;
-	uint32 p_min, p_max;
-	uint64 roots[MAX_ROOTS];
+	uint64 p_min, p_max;
+	double p_min_log, p_max_log;
 	mpz_poly_t tmp_poly;
 
 	aprog_list_t aprog_data;
@@ -90,7 +93,9 @@ typedef struct {
 
 	p_enum_t p_enum;
 
-	mpz_t p, pp, nmodpp, tmp1, tmp2, tmp3, gmp_root;
+	mpz_t p, pp, nmodpp, m0modpp, tmp1, tmp2, gmp_root;
+	mpz_t accum[MAX_P_FACTORS + 1];
+	mpz_t roots[MAX_ROOTS];
 } sieve_fb_t;
 
 /*------------------------------------------------------------------------*/
@@ -115,6 +120,7 @@ lift_root_32(uint32 n, uint32 r, uint32 old_power,
 void
 sieve_fb_free(void *s_in)
 {
+	uint32 i;
 	sieve_fb_t *s = (sieve_fb_t *)s_in;
 	aprog_list_t *list = &s->aprog_data;
 
@@ -124,11 +130,17 @@ sieve_fb_free(void *s_in)
 	mpz_clear(s->p);
 	mpz_clear(s->pp);
 	mpz_clear(s->nmodpp);
+	mpz_clear(s->m0modpp);
 	mpz_clear(s->tmp1);
 	mpz_clear(s->tmp2);
-	mpz_clear(s->tmp3);
 	mpz_clear(s->gmp_root);
 	mpz_poly_free(&s->tmp_poly);
+	for (i = 0; i <= MAX_P_FACTORS; i++)
+		mpz_clear(s->accum[i]);
+	for (i = 0; i < MAX_ROOTS; i++)
+		mpz_clear(s->roots[i]);
+
+	free(s);
 }
 
 /*------------------------------------------------------------------------*/
@@ -187,6 +199,8 @@ sieve_add_aprog(sieve_fb_t *s, poly_coeff_t *c, uint32 p,
 
 	a = list->aprogs + list->num_aprogs;
 	a->p = p;
+	a->p_log = log(p);
+	a->p_log_inv = 1.0 / a->p_log;
 	num_roots = get_prime_roots(c, p, roots, &s->tmp_poly);
 
 	if (num_roots == 0 ||
@@ -230,17 +244,22 @@ sieve_add_aprog(sieve_fb_t *s, poly_coeff_t *c, uint32 p,
 void *
 sieve_fb_alloc(void)
 {
+	uint32 i;
 	sieve_fb_t *s = (sieve_fb_t *)xcalloc(1, sizeof(sieve_fb_t));
 	aprog_list_t *aprog = &s->aprog_data;
 
 	mpz_init(s->p);
 	mpz_init(s->pp);
 	mpz_init(s->nmodpp);
+	mpz_init(s->m0modpp);
 	mpz_init(s->tmp1);
 	mpz_init(s->tmp2);
-	mpz_init(s->tmp3);
 	mpz_init(s->gmp_root);
 	mpz_poly_init(&s->tmp_poly);
+	for (i = 0; i <= MAX_P_FACTORS; i++)
+		mpz_init(s->accum[i]);
+	for (i = 0; i < MAX_ROOTS; i++)
+		mpz_init(s->roots[i]);
 
 	aprog->num_aprogs_alloc = 500;
 	aprog->aprogs = (aprog_t *)xmalloc(aprog->num_aprogs_alloc *
@@ -285,7 +304,7 @@ sieve_fb_init(void *s_in, poly_coeff_t *c,
 
 /*------------------------------------------------------------------------*/
 void 
-sieve_fb_reset(void *s_in, uint32 p_min, uint32 p_max,
+sieve_fb_reset(void *s_in, uint64 p_min, uint64 p_max,
 		uint32 num_roots_min, uint32 num_roots_max)
 {
 	uint32 i;
@@ -300,6 +319,8 @@ sieve_fb_reset(void *s_in, uint32 p_min, uint32 p_max,
 
 	s->p_min = p_min;
 	s->p_max = p_max;
+	s->p_min_log = log(p_min);
+	s->p_max_log = log(p_max);
 	s->num_roots_min = num_roots_min;
 	s->num_roots_max = num_roots_max;
 	s->avail_algos = 0;
@@ -324,6 +345,7 @@ sieve_fb_reset(void *s_in, uint32 p_min, uint32 p_max,
 		p_enum->num_factors = 0;
 		p_enum->curr_power[0] = 0;
 		p_enum->curr_prod[0] = 1;
+		p_enum->curr_prod_log[0] = 0;
 		p_enum->curr_num_roots[0] = 1;
 
 		for (i = 0; i < num_aprogs; i++) {
@@ -360,7 +382,7 @@ sieve_fb_reset(void *s_in, uint32 p_min, uint32 p_max,
 
 /*------------------------------------------------------------------------*/
 static void
-lift_roots(sieve_fb_t *s, poly_coeff_t *c, uint32 p, uint32 num_roots)
+lift_roots(sieve_fb_t *s, poly_coeff_t *c, uint64 p, uint32 num_roots)
 {
 	/* we have num_roots arithmetic progressions mod p;
 	   convert the progressions to be mod p^2, using
@@ -370,39 +392,35 @@ lift_roots(sieve_fb_t *s, poly_coeff_t *c, uint32 p, uint32 num_roots)
 	uint32 i;
 	unsigned long degree = s->degree;
 
-	mpz_set_ui(s->p, (unsigned long)p);
+	uint64_2gmp(p, s->p);
 	mpz_mul(s->pp, s->p, s->p);
 	mpz_tdiv_r(s->nmodpp, c->trans_N, s->pp);
-	mpz_tdiv_r(s->tmp3, c->trans_m0, s->pp);
+	mpz_tdiv_r(s->m0modpp, c->trans_m0, s->pp);
 
 	for (i = 0; i < num_roots; i++) {
 
-		uint64_2gmp(s->roots[i], s->gmp_root);
-
-		mpz_powm_ui(s->tmp1, s->gmp_root, degree, s->pp);
+		mpz_powm_ui(s->tmp1, s->roots[i], degree, s->pp);
 		mpz_sub(s->tmp1, s->nmodpp, s->tmp1);
 		if (mpz_cmp_ui(s->tmp1, (mp_limb_t)0) < 0)
 			mpz_add(s->tmp1, s->tmp1, s->pp);
 		mpz_tdiv_q(s->tmp1, s->tmp1, s->p);
 
-		mpz_powm_ui(s->tmp2, s->gmp_root, degree-1, s->p);
+		mpz_powm_ui(s->tmp2, s->roots[i], degree-1, s->p);
 		mpz_mul_ui(s->tmp2, s->tmp2, degree);
 		mpz_invert(s->tmp2, s->tmp2, s->p);
 
 		mpz_mul(s->tmp1, s->tmp1, s->tmp2);
 		mpz_tdiv_r(s->tmp1, s->tmp1, s->p);
-		mpz_addmul(s->gmp_root, s->tmp1, s->p);
-		mpz_sub(s->gmp_root, s->gmp_root, s->tmp3);
-		if (mpz_cmp_ui(s->gmp_root, (unsigned long)0) < 0)
-			mpz_add(s->gmp_root, s->gmp_root, s->pp);
-
-		s->roots[i] = gmp2uint64(s->gmp_root);
+		mpz_addmul(s->roots[i], s->tmp1, s->p);
+		mpz_sub(s->roots[i], s->roots[i], s->m0modpp);
+		if (mpz_cmp_ui(s->roots[i], (unsigned long)0) < 0)
+			mpz_add(s->roots[i], s->roots[i], s->pp);
 	}
 }
 
 /*------------------------------------------------------------------------*/
 static uint32
-combine_roots(sieve_fb_t *s, uint32 p,
+combine_roots(sieve_fb_t *s, uint64 p,
 		uint32 num_factors, uint32 p_i[MAX_P_FACTORS],
 		uint32 num_roots[MAX_P_FACTORS],
 		uint32 roots[MAX_P_FACTORS][MAX_POLYSELECT_DEGREE])
@@ -412,14 +430,13 @@ combine_roots(sieve_fb_t *s, uint32 p,
 	   p using the Chinese Remainder Theorem */
 
 	uint32 i, i0, i1, i2, i3, i4, i5, i6;
-	uint32 prod[MAX_P_FACTORS];
-	uint64 accum[MAX_P_FACTORS + 1];
+	uint64 prod[MAX_P_FACTORS];
 
 	if (num_factors == 1) { 
 		/* no CRT needed */
 
 		for (i = 0; i < num_roots[0]; i++)
-			s->roots[i] = roots[0][i];
+			mpz_set_ui(s->roots[i], (mp_limb_t)roots[0][i]);
 
 		return MIN(num_roots[0], s->num_roots_max);
 	}
@@ -428,9 +445,10 @@ combine_roots(sieve_fb_t *s, uint32 p,
 
 	for (i = 0; i < num_factors; i++) {
 		prod[i] = p / p_i[i];
-		prod[i] *= mp_modinv_1(prod[i] % p_i[i], p_i[i]);
+		prod[i] *= mp_modinv_1((uint32)(prod[i] % p_i[i]), p_i[i]);
 	}
-	accum[i] = 0;
+	mpz_set_ui(s->accum[i], (mp_limb_t)0);
+	uint64_2gmp(p, s->p);
 
 #if MAX_P_FACTORS > 7
 #error "MAX_P_FACTORS exceeds 7"
@@ -444,26 +462,49 @@ combine_roots(sieve_fb_t *s, uint32 p,
 	switch (num_factors) {
 	case 7:
 		for (i6 = num_roots[6] - 1; (int32)i6 >= 0; i6--) {
-			accum[6] = accum[7] + (uint64)prod[6] * roots[6][i6];
+			uint64_2gmp(prod[6], s->accum[6]);
+			mpz_mul_ui(s->accum[6], s->accum[6], 
+						(mp_limb_t)roots[6][i6]);
+			mpz_add(s->accum[6], s->accum[6], s->accum[7]);
 	case 6:
 		for (i5 = num_roots[5] - 1; (int32)i5 >= 0; i5--) {
-			accum[5] = accum[6] + (uint64)prod[5] * roots[5][i5];
+			uint64_2gmp(prod[5], s->accum[5]);
+			mpz_mul_ui(s->accum[5], s->accum[5], 
+						(mp_limb_t)roots[5][i5]);
+			mpz_add(s->accum[5], s->accum[5], s->accum[6]);
 	case 5:
 		for (i4 = num_roots[4] - 1; (int32)i4 >= 0; i4--) {
-			accum[4] = accum[5] + (uint64)prod[4] * roots[4][i4];
+			uint64_2gmp(prod[4], s->accum[4]);
+			mpz_mul_ui(s->accum[4], s->accum[4], 
+						(mp_limb_t)roots[4][i4]);
+			mpz_add(s->accum[4], s->accum[4], s->accum[5]);
 	case 4:
 		for (i3 = num_roots[3] - 1; (int32)i3 >= 0; i3--) {
-			accum[3] = accum[4] + (uint64)prod[3] * roots[3][i3];
+			uint64_2gmp(prod[3], s->accum[3]);
+			mpz_mul_ui(s->accum[3], s->accum[3], 
+						(mp_limb_t)roots[3][i3]);
+			mpz_add(s->accum[3], s->accum[3], s->accum[4]);
 	case 3:
 		for (i2 = num_roots[2] - 1; (int32)i2 >= 0; i2--) {
-			accum[2] = accum[3] + (uint64)prod[2] * roots[2][i2];
+			uint64_2gmp(prod[2], s->accum[2]);
+			mpz_mul_ui(s->accum[2], s->accum[2], 
+						(mp_limb_t)roots[2][i2]);
+			mpz_add(s->accum[2], s->accum[2], s->accum[3]);
 	case 2:
 		for (i1 = num_roots[1] - 1; (int32)i1 >= 0; i1--) {
-			accum[1] = accum[2] + (uint64)prod[1] * roots[1][i1];
+			uint64_2gmp(prod[1], s->accum[1]);
+			mpz_mul_ui(s->accum[1], s->accum[1], 
+						(mp_limb_t)roots[1][i1]);
+			mpz_add(s->accum[1], s->accum[1], s->accum[2]);
 
 		for (i0 = num_roots[0] - 1; (int32)i0 >= 0; i0--) {
-			accum[0] = accum[1] + (uint64)prod[0] * roots[0][i0];
-			s->roots[i++] = accum[0] % p;
+			uint64_2gmp(prod[0], s->accum[0]);
+			mpz_mul_ui(s->accum[0], s->accum[0], 
+						(mp_limb_t)roots[0][i0]);
+			mpz_add(s->accum[0], s->accum[0], s->accum[1]);
+
+			mpz_tdiv_r(s->accum[0], s->accum[0], s->p);
+			mpz_set(s->roots[i++], s->accum[0]);
 
 			if (i == s->num_roots_max)
 				goto finished;
@@ -484,7 +525,7 @@ get_enum_roots(sieve_fb_t *s)
 	uint32 *curr_factor = p_enum->curr_factor;
 	uint32 *curr_power = p_enum->curr_power;
 	uint32 num_factors = p_enum->num_factors;
-	uint32 p = p_enum->curr_prod[num_factors];
+	uint64 p = p_enum->curr_prod[num_factors];
 	uint32 p_i[MAX_P_FACTORS];
 	uint32 num_roots[MAX_P_FACTORS];
 	uint32 roots[MAX_P_FACTORS][MAX_POLYSELECT_DEGREE];
@@ -504,7 +545,7 @@ get_enum_roots(sieve_fb_t *s)
 }
 
 /*------------------------------------------------------------------------*/
-static uint32
+static uint64
 get_next_enum(sieve_fb_t *s)
 {
 	/* find the next p by enumerating combinations of
@@ -530,8 +571,9 @@ get_next_enum(sieve_fb_t *s)
 	p_enum_t *p_enum = &s->p_enum;
 	uint32 *curr_factor = p_enum->curr_factor;
 	uint32 *curr_power = p_enum->curr_power;
-	uint32 *curr_prod = p_enum->curr_prod;
 	uint32 *curr_num_roots = p_enum->curr_num_roots;
+	uint64 *curr_prod = p_enum->curr_prod;
+	double *curr_prod_log = p_enum->curr_prod_log;
 
 	while (1) {
 
@@ -547,7 +589,7 @@ get_next_enum(sieve_fb_t *s)
 		    && !(power_up && ++curr_power[i - 1] >= a->max_power)
 		    && (power_up || i < MAX_P_FACTORS)) {
 
-			uint32 p = curr_prod[i] * a->p;
+			uint64 p = curr_prod[i] * a->p;
 
 			if (!power_up) {
 				p_enum->num_factors = ++i;
@@ -556,6 +598,8 @@ get_next_enum(sieve_fb_t *s)
 			}
 
 			curr_prod[i] = p;
+			curr_prod_log[i] = curr_prod_log[i - 1] +
+					a->p_log * (curr_power[i - 1] + 1);
 			curr_factor[i] = 0;
 			curr_power[i] = 0;
 
@@ -564,25 +608,44 @@ get_next_enum(sieve_fb_t *s)
 		}
 		else if (i) {
 
+			uint32 j, factor_max;
+			double target, cmp, p0_log_inv;
+
 			i--;
-			curr_factor[i]++;
+			a = s->aprog_data.aprogs + curr_factor[i];
+			p0_log_inv = s->aprog_data.aprogs[0].p_log_inv;
+			target = floor((s->p_max_log - curr_prod_log[i]
+					- a->p_log) * p0_log_inv);
+			factor_max = (i ? curr_factor[i - 1]
+					: s->aprog_data.num_aprogs) - 1;
+
+			for (j = curr_factor[i] + 1; j <= factor_max; j++) {
+				a = s->aprog_data.aprogs + j;
+				cmp = floor((s->p_min_log
+					- curr_prod_log[i]) * a->p_log_inv);
+
+				if (cmp <= target)
+					break;
+			}
+			curr_factor[i] = j;
 			curr_power[i] = 0;
 			p_enum->num_factors = i;
 		}
 		else {
-			return P_SEARCH_DONE;
+			return 0;
 		}
 	}
 }
 
 /*------------------------------------------------------------------------*/
-uint32
+uint64
 sieve_fb_next(void *s_in, poly_coeff_t *c,
 		root_callback callback, void *extra)
 {
 	/* main external interface */
 
-	uint32 i, p, num_roots;
+	uint32 i, num_roots;
+	uint64 p;
 	sieve_fb_t *s = (sieve_fb_t *)s_in;
 
 	while (1) {
@@ -593,7 +656,7 @@ sieve_fb_next(void *s_in, poly_coeff_t *c,
 
 			p = get_next_enum(s);
 
-			if (p == P_SEARCH_DONE) {
+			if (p == 0) {
 				s->avail_algos &= ~ALGO_ENUM;
 				continue;
 			}
@@ -622,10 +685,11 @@ sieve_fb_next(void *s_in, poly_coeff_t *c,
 				continue;
 
 			for (i = 0; i < num_roots; i++)
-				s->roots[i] = roots[i];
+				mpz_set_ui(s->roots[i],
+					(mp_limb_t)roots[i]);
 		}
 		else {
-			return P_SEARCH_DONE;
+			return 0;
 		}
 
 		/* p found; generate all the arithmetic

@@ -14,6 +14,7 @@ $Id$
 
 #include <msieve.h>
 #include <signal.h>
+#include <common.h>
 
 #ifdef HAVE_MPI
 #include <mpi.h>
@@ -136,7 +137,6 @@ void print_usage(char *progname) {
 		 " polynomial selection options:\n"
 #ifdef HAVE_CUDA
 		 "   sortlib=X       use GPU sorting library X\n"
-		 "   gpu_mem_mb=X    use X megabytes of GPU memory\n"
 #endif
 		 "   polydegree=X    select polynomials with degree X\n"
 		 "   min_coeff=X     minimum leading coefficient to search\n"
@@ -227,7 +227,8 @@ void factor_integer(char *buf, uint32 flags,
 	msieve_run(g_curr_factorization);
 
 	if (!(g_curr_factorization->flags & MSIEVE_FLAG_FACTORIZATION_DONE)) {
-		printf("\ncurrent factorization was interrupted\n");
+		logprintf(g_curr_factorization,
+				"current factorization was interrupted\n");
 		exit(0);
 	}
 

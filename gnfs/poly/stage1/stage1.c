@@ -58,7 +58,7 @@ stage1_bounds_update(poly_search_t *poly, poly_coeff_t *c)
 	c->degree = degree;
 	c->m0 = m0;
 	c->coeff_max = coeff_max;
-	c->p_size_max = coeff_max / skewness_min;
+	c->p_size_max = coeff_max / 10;
 
 	/* we perform the collision search on a transformed version
 	   of N and the low-order rational coefficient m. In the
@@ -75,31 +75,36 @@ stage1_bounds_update(poly_search_t *poly, poly_coeff_t *c)
 
 /*------------------------------------------------------------------------*/
 uint32
-handle_collision(poly_coeff_t *c, uint64 p, uint32 special_q,
-		uint64 special_q_root, int64 res)
+handle_collision(poly_coeff_t *c, uint64 p, uint64 special_q,
+		uint128 special_q_root, int64 res)
 {
 	/* the proposed rational coefficient is p*special_q;
 	   p and special_q must be coprime. The 'trivial
 	   special q' has special_q = 1 and special_q_root = 0 */
 
 	uint64_2gmp(p, c->p);
-	mpz_gcd_ui(c->tmp1, c->p, special_q);
-	if (mpz_cmp_ui(c->tmp1, 1))
+	uint64_2gmp(special_q, c->tmp1);
+	mpz_gcd(c->tmp2, c->p, c->tmp1);
+	if (mpz_cmp_ui(c->tmp2, 1))
 		return 0;
 
-	mpz_mul_ui(c->p, c->p, (unsigned long)special_q);
+	mpz_mul(c->p, c->p, c->tmp1);
 
 	/* the corresponding correction to trans_m0 is 
 	   special_q_root + res * special_q^2, and can be
 	   positive or negative */
 
-	uint64_2gmp(special_q_root, c->tmp1);
+	mpz_import(c->tmp3, 4, -1, sizeof(uint32), 0, 0, &special_q_root);
 	int64_2gmp(res, c->tmp2);
-	mpz_set_ui(c->tmp3, special_q);
 
-	mpz_mul(c->tmp3, c->tmp3, c->tmp3);
-	mpz_addmul(c->tmp1, c->tmp2, c->tmp3);
-	mpz_add(c->m, c->trans_m0, c->tmp1);
+	mpz_mul(c->tmp1, c->tmp1, c->tmp1);
+	mpz_addmul(c->tmp3, c->tmp2, c->tmp1);
+	if (fabs(mpz_get_d(c->tmp3)) >
+	    c->coeff_max / c->m0 * mpz_get_d(c->p) * mpz_get_d(c->p)) {
+
+		return 0;
+	} 
+	mpz_add(c->m, c->trans_m0, c->tmp3);
 
 	/* a lot can go wrong before this function is called!
 	   Check that Kleinjung's modular condition is satisfied */
@@ -174,7 +179,7 @@ poly_search_free(poly_search_t *poly)
 
 /*------------------------------------------------------------------------*/
 poly_coeff_t *
-poly_coeff_init(void)
+poly_coeff_alloc(void)
 {
 	poly_coeff_t *c = (poly_coeff_t *)xmalloc(sizeof(poly_coeff_t));
 
@@ -201,19 +206,6 @@ poly_coeff_free(poly_coeff_t *c)
 	mpz_clear(c->tmp2);
 	mpz_clear(c->tmp3);
 	free(c);
-}
-
-void
-poly_coeff_copy(poly_coeff_t *dest, poly_coeff_t *src)
-{
-	dest->degree = src->degree;
-	dest->coeff_max = src->coeff_max;
-	dest->m0 = src->m0;
-	dest->p_size_max = src->p_size_max;
-
-	mpz_set(dest->high_coeff, src->high_coeff);
-	mpz_set(dest->trans_N, src->trans_N);
-	mpz_set(dest->trans_m0, src->trans_m0);
 }
 
 /*------------------------------------------------------------------------*/
@@ -396,40 +388,14 @@ free_ad_sieve(sieve_t *sieve)
 static void
 search_coeffs(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 {
-	uint32 digits = mpz_sizeinbase(poly->N, 10);
-	double deadline_per_coeff;
 	double cumulative_time = 0;
 	sieve_t ad_sieve;
-	poly_coeff_t *c = poly_coeff_init();
+	poly_coeff_t *c = poly_coeff_alloc();
 #ifdef HAVE_CUDA
 	void *gpu_data = gpu_data_init(obj, poly);
 #endif
 	/* determine the CPU time limit; I have no idea if
 	   the following is appropriate */
-
-	if (digits <= 100)
-		deadline_per_coeff = 5;
-	else if (digits <= 105)
-		deadline_per_coeff = 20;
-	else if (digits <= 110)
-		deadline_per_coeff = 30;
-	else if (digits <= 120)
-		deadline_per_coeff = 50;
-	else if (digits <= 130)
-		deadline_per_coeff = 100;
-	else if (digits <= 140)
-		deadline_per_coeff = 200;
-	else if (digits <= 150)
-		deadline_per_coeff = 400;
-	else if (digits <= 175)
-		deadline_per_coeff = 800;
-	else if (digits <= 200)
-		deadline_per_coeff = 1600;
-	else
-		deadline_per_coeff = 3200;
-
-	printf("deadline: %.0lf CPU-seconds per coefficient\n",
-					deadline_per_coeff);
 
 	/* set up lower limit on a_d */
 
@@ -462,12 +428,12 @@ search_coeffs(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 		   Kleinjung's improved algorithm */
 
 #ifdef HAVE_CUDA
-		cumulative_time = sieve_lattice_gpu(obj, poly, c,
-					gpu_data, deadline_per_coeff);
+		elapsed = sieve_lattice_gpu(obj, poly, c, gpu_data);
 #else
-		elapsed = sieve_lattice_cpu(obj, poly, c, deadline_per_coeff);
-		cumulative_time += elapsed;
+		elapsed = sieve_lattice_cpu(obj, poly, c);
 #endif
+
+		cumulative_time += elapsed;
 
 		if (obj->flags & MSIEVE_FLAG_STOP_SIEVING)
 			break;

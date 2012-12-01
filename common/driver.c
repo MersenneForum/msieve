@@ -347,13 +347,13 @@ void logprintf(msieve_obj *obj, char *fmt, ...) {
 		strcpy(buf, ctime(&t));
 		*(strchr(buf, '\n')) = 0;
 		fprintf(logfile, "%s  ", buf);
-		vfprintf(logfile, fmt, ap);
+		gmp_vfprintf(logfile, fmt, ap);
 		fclose(logfile);
 		va_end(ap);
 	}
 	if (obj->flags & MSIEVE_FLAG_LOG_TO_STDOUT) {
 		va_start(ap, fmt);
-		vfprintf(stdout, fmt, ap);
+		gmp_vfprintf(stdout, fmt, ap);
 		va_end(ap);
 	}
 }

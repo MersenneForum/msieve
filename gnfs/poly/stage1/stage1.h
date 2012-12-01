@@ -22,11 +22,16 @@ $Id$
 
 #include <poly_skew.h>
 #include <cuda_xface.h>
-#include <thread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* 128-bit integers */
+
+typedef struct {
+	uint32 w[4];
+} uint128;
 
 #define MAX_POLYSELECT_DEGREE 6
 
@@ -126,7 +131,6 @@ typedef struct {
 
 poly_coeff_t * poly_coeff_init(void);
 void poly_coeff_free(poly_coeff_t *c);
-void poly_coeff_copy(poly_coeff_t *dest, poly_coeff_t *src);
 
 /*-----------------------------------------------------------------------*/
 
@@ -193,18 +197,18 @@ void sieve_fb_init(void *s_in, poly_coeff_t *coeff,
 
 #define MAX_ROOTS 128
 
-void sieve_fb_reset(void *s_in, uint32 p_min, uint32 p_max,
+void sieve_fb_reset(void *s_in, uint64 p_min, uint64 p_max,
 			uint32 num_roots_min, uint32 num_roots_max);
 
 /* function that 'does something' when a single p 
    and all its roots is found */
 
-typedef void (*root_callback)(uint32 p, uint32 num_roots, uint64 *roots, 
+typedef void (*root_callback)(uint64 p, uint32 num_roots, mpz_t *roots, 
 				void *extra);
 
 /* find the next p and all of its roots. The code returns
-   P_SEARCH_DONE if no more p exist, otherwise it calls 
-   callback() and returns p.
+   0 if no more p exist, otherwise it calls callback() and
+   returns p.
 
    p which are products of small primes are found first, then
    large prime p (since prime p are slower and you may not want
@@ -212,9 +216,7 @@ typedef void (*root_callback)(uint32 p, uint32 num_roots, uint64 *roots,
    no order may be assumed for composite p returned by 
    consecutive calls */
 
-#define P_SEARCH_DONE ((uint32)(-2))
-
-uint32 sieve_fb_next(void *s_in, poly_coeff_t *c, 
+uint64 sieve_fb_next(void *s_in, poly_coeff_t *c, 
 			root_callback callback,
 			void *extra);
 
@@ -223,8 +225,8 @@ uint32 sieve_fb_next(void *s_in, poly_coeff_t *c,
 /* what to do when the collision search finds a 'stage 1 hit' */
 
 uint32
-handle_collision(poly_coeff_t *c, uint64 p, uint32 special_q,
-		uint64 special_q_root, int64 res);
+handle_collision(poly_coeff_t *c, uint64 p, uint64 special_q,
+		uint128 special_q_root, int64 res);
 
 /* main search routine */
 
@@ -235,8 +237,7 @@ handle_collision(poly_coeff_t *c, uint64 p, uint32 special_q,
 double sieve_lattice_gpu(msieve_obj *obj,
 			poly_search_t *poly, 
 			poly_coeff_t *c, 
-			void *gpu_data,
-			double deadline);
+			void *gpu_data);
 
 void * gpu_data_init(msieve_obj *obj, poly_search_t *poly);
 void gpu_data_free(void *gpu_data);
@@ -247,8 +248,7 @@ void gpu_data_free(void *gpu_data);
 
 double sieve_lattice_cpu(msieve_obj *obj,
 			poly_search_t *poly, 
-			poly_coeff_t *c,
-			double deadline);
+			poly_coeff_t *c);
 
 #endif
 

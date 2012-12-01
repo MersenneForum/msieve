@@ -142,7 +142,7 @@ p_packed_next(p_packed_t *curr)
 }
 
 static void 
-store_p_packed(uint32 p, uint32 num_roots, uint64 *roots, void *extra)
+store_p_packed(uint64 p, uint32 num_roots, mpz_t *roots, void *extra)
 {
 	/* used to insert a new arithmetic progression and all its
 	   roots into the list */
@@ -171,11 +171,11 @@ store_p_packed(uint32 p, uint32 num_roots, uint64 *roots, void *extra)
 	}
 
 	curr = s->curr;
-	curr->p = p;
+	curr->p = (uint32)p;
 	curr->pad = 0;
 	curr->num_roots = num_roots;
 	for (i = 0; i < num_roots; i++)
-		curr->roots[i].start_offset = roots[i];
+		curr->roots[i].start_offset = gmp2uint64(roots[i]);
 	curr->pp = (uint64)p * p;
 
 	/* set up Montgomery arithmetic */
@@ -220,8 +220,8 @@ handle_special_q(msieve_obj *obj, poly_search_t *poly, poly_coeff_t *c,
 	uint32 hashmask = hashtable_size - 1;
 
 	if (sieve_start > 0) {
-		printf("error: sieve size must fit in signed int "
-			"in handle_special_q()\n");
+		logprintf(obj, "error: sieve size must fit in signed int "
+				"in handle_special_q()\n");
 		exit(1);
 	}
 
@@ -343,12 +343,18 @@ handle_special_q(msieve_obj *obj, poly_search_t *poly, poly_coeff_t *c,
 						   coordinates' */
 
 						uint64 p;
+						uint128 qr;
+
+						qr.w[0] = (uint32)special_q_root;
+						qr.w[1] = (uint32)(special_q_root >> 32);
+						qr.w[2] = 0;
+						qr.w[3] = 0;
 
 						p = tmp->p;
 						p = p * hashtable[key].p;
 
 						if (handle_collision(c, p, special_q,
-							special_q_root, offset) != 0) {
+							qr, offset) != 0) {
 
 							poly->callback(c->high_coeff,
 								c->p, c->m,
@@ -441,7 +447,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 		poly_coeff_t *c, int64 sieve_size,
 		void *sieve_special_q, void *sieve_p, 
 		uint32 special_q_min, uint32 special_q_max, 
-		uint32 p_min, uint32 p_max, double deadline, double *elapsed)
+		uint32 p_min, uint32 p_max, double *elapsed)
 {
 	/* core search code */
 
@@ -469,14 +475,14 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 
 	sieve_fb_reset(sieve_p, p_min, p_max, 1, MAX_ROOTS);
 	while (sieve_fb_next(sieve_p, c, store_p_packed,
-			&hash_array) != P_SEARCH_DONE) {
+			&hash_array) != 0) {
 		;
 	}
 
 	num_p = hash_array.num_p;
 	num_roots = hash_array.num_roots;
 #if 1
-	printf("aprogs: %u entries, %u roots\n", num_p, num_roots);
+	logprintf(obj, "aprogs: %u entries, %u roots\n", num_p, num_roots);
 #endif
 
 	block_size = (uint64)p_min * p_min;
@@ -528,7 +534,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 
 		p_packed_reset(&specialq_array);
 		while (sieve_fb_next(sieve_special_q, c, store_p_packed,
-					&specialq_array) != P_SEARCH_DONE) {
+					&specialq_array) != 0) {
 			if (specialq_array.num_p == SPECIALQ_BATCH_SIZE)
 				break;
 		}
@@ -537,7 +543,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 		if (num_q == 0)
 			break;
 #if 0
-		printf("special q: %u entries, %u roots\n", num_q, 
+		logprintf(obj, "special q: %u entries, %u roots\n", num_q, 
 					specialq_array.num_roots);
 #endif
 
@@ -596,11 +602,6 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 					goto finished;
 			}
 
-			if (get_cpu_time() - cpu_start_time > deadline) {
-				quit = 1;
-				goto finished;
-			}
-
 			qptr = p_packed_next(qptr);
 			invtmp += num_p;
 		}
@@ -608,7 +609,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 
 finished:
 #if 1
-	printf("hashtable: %u entries, %5.2lf MB\n", 
+	logprintf(obj, "hashtable: %u entries, %5.2lf MB\n", 
 			(uint32)1 << hashtable_size_log2,
 			(double)sizeof(hash_entry_t) *
 				((uint32)1 << hashtable_size_log2) / 1048576);
@@ -624,20 +625,18 @@ finished:
 
 /*------------------------------------------------------------------------*/
 double
-sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly, 
-		poly_coeff_t *c, double deadline)
+sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly, poly_coeff_t *c)
 {
-	uint32 i;
 	uint32 degree = poly->degree;
 	uint32 num_pieces;
 	uint32 p_min, p_max;
 	uint32 special_q_min, special_q_max;
 	uint32 special_q_min2, special_q_max2;
 	uint32 special_q_fb_max;
-	uint32 num_passes;
 	double p_size_max = c->p_size_max;
-	double sieve_bound = c->coeff_max / c->m0;
-	double elapsed_total = 0;
+	double elapsed = 0;
+	double target = c->coeff_max / c->m0;
+	int64 sieve_size;
 	void *sieve_p = sieve_fb_alloc(); 
 	void *sieve_special_q = sieve_fb_alloc();
 
@@ -651,14 +650,17 @@ sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly,
 	   yield a collision, which makes the search more
 	   difficult */
 
-	p_min = MIN(MAX_OTHER / P_SCALE, sqrt(2.5 / sieve_bound));
-	p_min = MIN(p_min, pow((double)SIEVE_MAX / sieve_bound, 1. / 4.) - 1);
+	p_min = MIN(MAX_OTHER / P_SCALE, sqrt(2.5 / target));
+	p_min = MIN(p_min, pow((double)SIEVE_MAX / target, 1. / 4.) - 1);
 	p_min = MIN(p_min, sqrt(p_size_max) / P_SCALE);
 
 	p_max = p_min * P_SCALE;
 
 	special_q_min = 1;
 	special_q_max = MIN(MAX_SPECIAL_Q, p_size_max / p_max / p_max);
+
+	sieve_size = MIN(target * pow((double)p_min, 4.),
+			SIEVE_MAX);
 
 	/* set up the special q factory; special-q may have 
 	   arbitrary factors, but many small factors are 
@@ -691,61 +693,35 @@ sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly,
 				/ log(special_q_max) / log(p_max)
 				/ 3e9);
 
-	if (degree == 5)
-		num_passes = 2;
-	else
-		num_passes = 1;
+	if (num_pieces > 1) { /* randomize the special_q range */
+		uint32 piece_length = (special_q_max - special_q_min)
+				/ num_pieces;
+		uint32 piece = get_rand(&obj->seed1, &obj->seed2)
+				% num_pieces;
 
-	for (i = 0; i < num_passes; i++) {
-		uint32 quit;
-		double elapsed = 0;
-		int64 sieve_size = MIN(sieve_bound * pow((double)p_min, 4.),
-					SIEVE_MAX);
-
-		if (sieve_size == SIEVE_MAX && i > 0)
-			break;
-
-		if (num_pieces > 1) { /* randomize the special_q range */
-			uint32 piece_length = (special_q_max - special_q_min)
-					/ num_pieces;
-			uint32 piece = get_rand(&obj->seed1, &obj->seed2)
-					% num_pieces;
-
-			printf("randomizing rational coefficient: "
+		logprintf(obj, "randomizing rational coefficient: "
 				"using piece #%u of %u\n",
 				piece + 1, num_pieces);
 
-			special_q_min2 = special_q_min + piece * piece_length;
-			special_q_max2 = special_q_min2 + piece_length;
-		}
-		else {
-			special_q_min2 = special_q_min;
-			special_q_max2 = special_q_max;
-		}
-
-		gmp_printf("coeff %Zd specialq %u - %u other %u - %u\n",
-				c->high_coeff,
-				special_q_min2, special_q_max2,
-				p_min, p_max);
-
-		quit = sieve_specialq_64(obj, poly, c, sieve_size,
-				sieve_special_q, sieve_p,
-				special_q_min2, special_q_max2,
-				p_min, p_max, deadline, &elapsed);
-
-		elapsed_total += elapsed;
-		deadline -= elapsed;
-
-		if (quit || special_q_max < 250 ||
-		    p_max >= MAX_OTHER / P_SCALE)
-			break;
-
-		p_min = p_max;
-		p_max *= P_SCALE;
-		special_q_max /= (P_SCALE * P_SCALE);
+		special_q_min2 = special_q_min + piece * piece_length;
+		special_q_max2 = special_q_min2 + piece_length;
 	}
+	else {
+		special_q_min2 = special_q_min;
+		special_q_max2 = special_q_max;
+	}
+
+	logprintf(obj, "coeff %Zd specialq %u - %u other %u - %u\n",
+			c->high_coeff,
+			special_q_min2, special_q_max2,
+			p_min, p_max);
+
+	sieve_specialq_64(obj, poly, c, sieve_size,
+			sieve_special_q, sieve_p,
+			special_q_min2, special_q_max2,
+			p_min, p_max, &elapsed);
 
 	sieve_fb_free(sieve_special_q);
 	sieve_fb_free(sieve_p);
-	return elapsed_total;
+	return elapsed;
 }

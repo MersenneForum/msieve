@@ -12,8 +12,8 @@ benefit from your work.
 $Id$
 --------------------------------------------------------------------*/
 
-#ifndef _STAGE1_CORE_GPU_3PROG_H_
-#define _STAGE1_CORE_GPU_3PROG_H_
+#ifndef _STAGE1_CORE_H_
+#define _STAGE1_CORE_H_
 
 #ifdef __CUDACC__
 #include "cuda_intrinsics.h"
@@ -26,24 +26,21 @@ extern "C" {
 #define FOUND_ARRAY_SIZE 1000
 
 typedef struct {
-	uint32 p1;
-	uint32 p2;
-	uint32 q;
-	uint32 pad;
-	uint64 qroot;
-	int64 offset;
-} found_t;
+	uint64 p;
+	uint128 pp;
+	uint128 root;
+} specialq_t;
 
 typedef struct {
-	uint32 p;
-	uint32 pad;
-	uint64 pp;
-	uint64 root;
-} specialq_t;
+	uint32 p1;
+	uint32 p2;
+	int64 offset;
+	specialq_t q;
+} found_t;
 
 #ifdef __cplusplus
 }
 
 #endif
 
-#endif /* !_STAGE1_CORE_GPU_3PROG_H_ */
+#endif /* !_STAGE1_CORE_H_ */

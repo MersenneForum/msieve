@@ -12,15 +12,11 @@
 #  $Id$
 # --------------------------------------------------------------------
 
-# override from command line
-WIN = 0
-
 # gcc with basic optimization (-march flag could
 # get overridden by architecture-specific builds)
-CC = gcc
+CC = gcc -D_FILE_OFFSET_BITS=64
 WARN_FLAGS = -Wall -W
-OPT_FLAGS = -O3 -fomit-frame-pointer -march=core2 \
-	    -D_FILE_OFFSET_BITS=64 -DNDEBUG -D_LARGEFILE64_SOURCE
+OPT_FLAGS = -O3 -fomit-frame-pointer -march=k8 -DNDEBUG -D_LARGEFILE64_SOURCE
 
 # use := instead of = so we only run the following once
 SVN_VERSION := $(shell svnversion .)
@@ -38,38 +34,34 @@ ifeq ($(ECM),1)
 	CFLAGS += -DHAVE_GMP_ECM
 	LIBS += -lecm
 endif
-ifeq ($(WIN),1)
+ifeq ($(WIN32_3GB),1)
 	LDFLAGS += -Wl,--large-address-aware
-else
-	LIBS += -ldl
 endif
 ifeq ($(LARGEBLOCKS),1)
 	CFLAGS += -DLARGEBLOCKS
 endif
 ifeq ($(CUDA),1)
-
-ifeq ($(WIN),1)
+	# these environment variables are set in windows
 	CUDA_ROOT = $(shell echo $$CUDA_PATH)
-	NVCC = "$(CUDA_ROOT)bin/nvcc"
-	CUDA_LIBS = "$(CUDA_ROOT)lib/win32/cuda.lib"
-else
-	NVCC = "$(shell which nvcc)"
-	CUDA_ROOT = $(shell dirname $(NVCC))/../
-	CUDA_LIBS = -lcuda
-endif
-	CFLAGS += -I"$(CUDA_ROOT)include" -Ib40c -DHAVE_CUDA
-	LIBS += $(CUDA_LIBS)
+	CUDA_INC_DIR = $(CUDA_ROOT)include
+	CUDA_LIB_DIR = $(CUDA_ROOT)lib/win32
+
+	# On linux, the include directory seems to be in a
+	# standard place but there is a 32-bit and 64-bit
+	# version of the CUDA driver libs
+	# CUDA_INC_DIR = /usr/local/cuda/include
+	# CUDA_LIB_DIR = /usr/lib
+	# CUDA_LIB_DIR = /usr/lib64
+
+	CFLAGS += -I"$(CUDA_INC_DIR)" -I../b40c -DHAVE_CUDA
+
+	# the CUDA driver library has a different name in linux
+	# LIBS += "$(CUDA_LIB_DIR)/cuda.lib"
+	LIBS += -lcuda
 endif
 ifeq ($(MPI),1)
-	CC = mpicc
+	CC = mpicc -D_FILE_OFFSET_BITS=64
 	CFLAGS += -DHAVE_MPI
-endif
-ifeq ($(BOINC),1)
-	# fill in as appropriate
-	BOINC_INC_DIR = .
-	BOINC_LIB_DIR = .
-	CFLAGS += -I$(BOINC_INC_DIR) -DHAVE_BOINC
-	LIBS += -L$(BOINC_LIB_DIR) -lboinc_api -lboinc
 endif
 ifeq ($(NO_ZLIB),1)
 	CFLAGS += -DNO_ZLIB
@@ -82,7 +74,7 @@ endif
 # win32 or win64, so it's safe to pull libpthread into the link line.
 # Of course this does mean you have to install the minGW pthreads bundle...
 
-LIBS += -lgmp -lm -lpthread
+LIBS += -lgmp -lm -lpthread -ldl
 
 #---------------------------------- Generic file lists -------------------
 
@@ -163,17 +155,33 @@ QS_OBJS = \
 	mpqs/poly.qo \
 	mpqs/relation.qo \
 	mpqs/sieve.qo \
-	mpqs/sqrt.qo \
+	mpqs/sqrt.qo
+
+QS_CORE_OBJS = \
 	mpqs/sieve_core_generic_32k.qo \
 	mpqs/sieve_core_generic_64k.qo
+
+QS_CORE_OBJS_X86 = \
+	mpqs/sieve_core_p2_64k.qo \
+	mpqs/sieve_core_p3_64k.qo \
+	mpqs/sieve_core_p4_64k.qo \
+	mpqs/sieve_core_pm_32k.qo \
+	mpqs/sieve_core_core_32k.qo \
+	mpqs/sieve_core_k7_64k.qo \
+	mpqs/sieve_core_k7xp_64k.qo \
+	mpqs/sieve_core_k8_64k.qo
+
+QS_CORE_OBJS_X86_64 = \
+	mpqs/sieve_core_p4_64_64k.qo \
+	mpqs/sieve_core_core_64_32k.qo \
+	mpqs/sieve_core_k8_64_64k.qo
 
 #---------------------------------- GPU file lists -------------------------
 
 GPU_OBJS = \
 	stage1_core_sm11.ptx \
 	stage1_core_sm13.ptx \
-	stage1_core_sm20.ptx \
-	b40c/built
+	stage1_core_sm20.ptx
 
 #---------------------------------- NFS file lists -------------------------
 
@@ -181,6 +189,7 @@ NFS_HDR = \
 	gnfs/filter/filter.h \
 	gnfs/poly/poly.h \
 	gnfs/poly/poly_skew.h \
+	gnfs/poly/stage1/cpu_intrinsics.h \
 	gnfs/poly/stage1/stage1.h \
 	gnfs/poly/stage2/stage2.h \
 	gnfs/sieve/sieve.h \
@@ -192,8 +201,7 @@ NFS_GPU_HDR = \
 	gnfs/poly/stage1/stage1_core_gpu/cuda_intrinsics.h \
 	gnfs/poly/stage1/stage1_core_gpu/stage1_core.h
 
-NFS_NOGPU_HDR = \
-	gnfs/poly/stage1/cpu_intrinsics.h
+NFS_NOGPU_HDR =
 
 NFS_SRCS = \
 	gnfs/poly/poly.c \
@@ -253,27 +261,50 @@ endif
 
 #---------------------------------- make targets -------------------------
 
-help:
-	@echo "to build:"
-	@echo "make all"
-	@echo "add 'WIN=1 if building on windows"
+all:
+	@echo "pick a target:"
+	@echo "x86       32-bit Intel/AMD systems (required if gcc used)"
+	@echo "x86_64    64-bit Intel/AMD systems (required if gcc used)"
+	@echo "          (uncomment the second OPT_FLAGS in the Makefile)"
+	@echo "generic   portable code"
 	@echo "add 'ECM=1' if GMP-ECM is available (enables ECM)"
 	@echo "add 'CUDA=1' for Nvidia graphics card support"
 	@echo "add 'MPI=1' for parallel processing using MPI"
-	@echo "add 'BOINC=1' to add BOINC wrapper"
 	@echo "add 'NO_ZLIB=1' if you don't have zlib"
 
-all: $(COMMON_OBJS) $(QS_OBJS) $(NFS_OBJS) $(GPU_OBJS)
+x86: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
+		$(QS_CORE_OBJS_X86) $(NFS_OBJS) $(GPU_OBJS)
 	rm -f libmsieve.a
-	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) $(NFS_OBJS)
+	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
+			$(QS_CORE_OBJS) $(QS_CORE_OBJS_X86) \
+			$(NFS_OBJS)
+	ranlib libmsieve.a
+	$(CC) $(CFLAGS) demo.c -o msieve $(LDFLAGS) \
+			libmsieve.a $(LIBS)
+
+x86_64: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) \
+		$(QS_CORE_OBJS_X86_64) $(NFS_OBJS) $(GPU_OBJS)
+	rm -f libmsieve.a
+	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
+			$(QS_CORE_OBJS) $(QS_CORE_OBJS_X86_64) \
+			$(NFS_OBJS)
+	ranlib libmsieve.a
+	$(CC) $(CFLAGS) demo.c -o msieve $(LDFLAGS) \
+			libmsieve.a $(LIBS)
+
+generic: $(COMMON_OBJS) $(QS_OBJS) $(QS_CORE_OBJS) $(NFS_OBJS) $(GPU_OBJS)
+	rm -f libmsieve.a
+	ar r libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
+			$(QS_CORE_OBJS) $(NFS_OBJS)
 	ranlib libmsieve.a
 	$(CC) $(CFLAGS) demo.c -o msieve $(LDFLAGS) \
 			libmsieve.a $(LIBS)
 
 clean:
-	cd b40c && make clean WIN=$(WIN) && cd ..
-	rm -f msieve msieve.exe libmsieve.a $(COMMON_OBJS) $(QS_OBJS) \
-		$(NFS_OBJS) $(NFS_GPU_OBJS) $(NFS_NOGPU_OBJS) *.ptx
+	rm -f msieve msieve.exe libmsieve.a $(COMMON_OBJS) 	\
+		$(QS_OBJS) $(QS_CORE_OBJS) $(QS_CORE_OBJS_X86) \
+		$(QS_CORE_OBJS_X86_64) $(NFS_OBJS) \
+		$(NFS_GPU_OBJS) $(NFS_NOGPU_OBJS) *.ptx
 
 #----------------------------------------- build rules ----------------------
 
@@ -285,13 +316,68 @@ clean:
 # QS build rules
 
 mpqs/sieve_core_generic_32k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
-	$(CC) $(CFLAGS) -DBLOCK_KB=32 -DHAS_SSE2 \
+	$(CC) $(CFLAGS) -DBLOCK_KB=32 -DCPU_GENERIC \
 		-DROUTINE_NAME=qs_core_sieve_generic_32k \
 		-c -o $@ mpqs/sieve_core.c
 
 mpqs/sieve_core_generic_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
-	$(CC) $(CFLAGS) -DBLOCK_KB=64 -DHAS_SSE2 \
+	$(CC) $(CFLAGS) -DBLOCK_KB=64 -DCPU_GENERIC \
 		-DROUTINE_NAME=qs_core_sieve_generic_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_p2_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=pentium2 -DBLOCK_KB=64 -DCPU_PENTIUM2 \
+		-DROUTINE_NAME=qs_core_sieve_p2_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_p3_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=pentium3 -DBLOCK_KB=64 -DCPU_PENTIUM3 \
+		-DROUTINE_NAME=qs_core_sieve_p3_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_p4_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=pentium4 -DBLOCK_KB=64 -DCPU_PENTIUM4 \
+		-DROUTINE_NAME=qs_core_sieve_p4_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_pm_32k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=pentium-m -DBLOCK_KB=32 -DCPU_PENTIUM_M \
+		-DROUTINE_NAME=qs_core_sieve_pm_32k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_core_32k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=prescott -DBLOCK_KB=32 -DCPU_CORE \
+		-DROUTINE_NAME=qs_core_sieve_core_32k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_k7_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=athlon -DBLOCK_KB=64 -DCPU_ATHLON \
+		-DROUTINE_NAME=qs_core_sieve_k7_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_k7xp_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=athlon-xp -DBLOCK_KB=64 -DCPU_ATHLON_XP \
+		-DROUTINE_NAME=qs_core_sieve_k7xp_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_k8_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=k8 -DBLOCK_KB=64 -DCPU_OPTERON \
+		-DROUTINE_NAME=qs_core_sieve_k8_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_p4_64_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=nocona -DBLOCK_KB=64 -DCPU_PENTIUM4 \
+		-DROUTINE_NAME=qs_core_sieve_p4_64k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_core_64_32k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=nocona -DBLOCK_KB=32 -DCPU_CORE \
+		-DROUTINE_NAME=qs_core_sieve_core_32k \
+		-c -o $@ mpqs/sieve_core.c
+
+mpqs/sieve_core_k8_64_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
+	$(CC) $(CFLAGS) -march=k8 -DBLOCK_KB=64 -DCPU_OPTERON \
+		-DROUTINE_NAME=qs_core_sieve_k8_64k \
 		-c -o $@ mpqs/sieve_core.c
 
 %.qo: %.c $(COMMON_HDR) $(QS_HDR)
@@ -305,13 +391,10 @@ mpqs/sieve_core_generic_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
 # GPU build rules
 
 stage1_core_sm11.ptx: $(NFS_GPU_HDR)
-	$(NVCC) -arch sm_11 -ptx -o $@ $<
+	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_11 -ptx -o $@ $<
 
 stage1_core_sm13.ptx: $(NFS_GPU_HDR)
-	$(NVCC) -arch sm_13 -ptx -o $@ $<
+	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_13 -ptx -o $@ $<
 
 stage1_core_sm20.ptx: $(NFS_GPU_HDR)
-	$(NVCC) -arch sm_20 -ptx -o $@ $<
-
-b40c/built:
-	cd b40c && make WIN=$(WIN) && cd ..
+	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_20 -ptx -o $@ $<
