@@ -126,7 +126,7 @@ modsub64(uint64 a, uint64 b, uint64 p)
 }
 
 /*------------------------------- GCD --------------------------------*/
-__device__  uint32
+__device__  uint64
 gcd64(uint64 x, uint64 y) {
 
 	/* assumes x and y are odd and nonzero */
