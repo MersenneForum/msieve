@@ -180,7 +180,6 @@ QS_CORE_OBJS_X86_64 = \
 
 GPU_OBJS = \
 	stage1_core_sm11.ptx \
-	stage1_core_sm13.ptx \
 	stage1_core_sm20.ptx
 
 #---------------------------------- NFS file lists -------------------------
@@ -392,9 +391,6 @@ mpqs/sieve_core_k8_64_64k.qo: mpqs/sieve_core.c $(COMMON_HDR) $(QS_HDR)
 
 stage1_core_sm11.ptx: $(NFS_GPU_HDR)
 	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_11 -ptx -o $@ $<
-
-stage1_core_sm13.ptx: $(NFS_GPU_HDR)
-	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_13 -ptx -o $@ $<
 
 stage1_core_sm20.ptx: $(NFS_GPU_HDR)
 	$(CUDA_PATH)/bin/nvcc $(NVCCFLAGS) -arch sm_20 -ptx -o $@ $<

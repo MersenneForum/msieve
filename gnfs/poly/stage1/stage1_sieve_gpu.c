@@ -942,8 +942,6 @@ gpu_data_init(msieve_obj *obj, poly_search_t *poly)
 
 	if (d->gpu_info->compute_version_major >= 2)
 		CUDA_TRY(cuModuleLoad(&d->gpu_module, "stage1_core_sm20.ptx"))
-	else if (d->gpu_info->compute_version_minor >= 3)
-		CUDA_TRY(cuModuleLoad(&d->gpu_module, "stage1_core_sm13.ptx"))
 	else
 		CUDA_TRY(cuModuleLoad(&d->gpu_module, "stage1_core_sm11.ptx"))
 
