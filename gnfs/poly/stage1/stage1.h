@@ -195,7 +195,7 @@ void sieve_fb_init(void *s_in, poly_coeff_t *coeff,
    for each p is between num_roots_min and num_roots_max 
    (bounded by MAX_ROOTS) */
 
-#define MAX_ROOTS 128
+#define MAX_ROOTS 31104
 
 void sieve_fb_reset(void *s_in, uint64 p_min, uint64 p_max,
 			uint32 num_roots_min, uint32 num_roots_max);
