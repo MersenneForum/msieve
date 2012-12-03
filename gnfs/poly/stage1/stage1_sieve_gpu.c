@@ -637,8 +637,7 @@ sieve_specialq(msieve_obj *obj, poly_search_t *poly,
 		poly_coeff_t *c, void *gpu_data,
 		void *sieve_special_q, void *sieve_p,
 		uint64 special_q_min, uint64 special_q_max,
-		uint32 p_min, uint32 p_max,
-		double deadline, double *elapsed)
+		uint32 p_min, uint32 p_max, double *elapsed)
 {
 	uint32 i, j;
 	uint32 quit = 0;
@@ -736,8 +735,6 @@ sieve_specialq(msieve_obj *obj, poly_search_t *poly,
 
 		*elapsed = get_cpu_time() - cpu_start_time +
 				data->gpu_elapsed;
-		if (*elapsed > deadline)
-			quit = 1;
 	}
 
 	CUDA_TRY(cuMemFree(data->gpu_q_array))
@@ -748,7 +745,7 @@ sieve_specialq(msieve_obj *obj, poly_search_t *poly,
 /*------------------------------------------------------------------------*/
 double
 sieve_lattice_gpu(msieve_obj *obj, poly_search_t *poly, 
-		poly_coeff_t *c, void *gpu_data, double deadline)
+		poly_coeff_t *c, void *gpu_data)
 {
 	uint32 degree = poly->degree;
 	uint32 num_pieces;
@@ -831,7 +828,7 @@ sieve_lattice_gpu(msieve_obj *obj, poly_search_t *poly,
 
 	sieve_specialq(obj, poly, c, gpu_data, sieve_special_q, sieve_p,
 			special_q_min2, special_q_max2, p_min, p_max,
-			deadline, &elapsed);
+			&elapsed);
 
 	sieve_fb_free(sieve_special_q);
 	sieve_fb_free(sieve_p);
