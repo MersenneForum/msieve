@@ -447,8 +447,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 		poly_coeff_t *c, int64 sieve_size,
 		void *sieve_special_q, void *sieve_p, 
 		uint32 special_q_min, uint32 special_q_max, 
-		uint32 p_min, uint32 p_max,
-		double deadline, double *elapsed)
+		uint32 p_min, uint32 p_max, double *elapsed)
 {
 	/* core search code */
 
@@ -603,11 +602,6 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 					goto finished;
 			}
 
-			if (get_cpu_time() - cpu_start_time > deadline) {
-				quit = 1;
-				goto finished;
-			}
-
 			qptr = p_packed_next(qptr);
 			invtmp += num_p;
 		}
@@ -631,8 +625,7 @@ finished:
 
 /*------------------------------------------------------------------------*/
 double
-sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly,
-		poly_coeff_t *c, double deadline)
+sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly, poly_coeff_t *c)
 {
 	uint32 degree = poly->degree;
 	uint32 num_pieces;
@@ -726,7 +719,7 @@ sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly,
 	sieve_specialq_64(obj, poly, c, sieve_size,
 			sieve_special_q, sieve_p,
 			special_q_min2, special_q_max2,
-			p_min, p_max, deadline, &elapsed);
+			p_min, p_max, &elapsed);
 
 	sieve_fb_free(sieve_special_q);
 	sieve_fb_free(sieve_p);

@@ -428,11 +428,9 @@ search_coeffs(msieve_obj *obj, poly_search_t *poly, uint32 deadline)
 		   Kleinjung's improved algorithm */
 
 #ifdef HAVE_CUDA
-		elapsed = sieve_lattice_gpu(obj, poly, c,
-				gpu_data, deadline - cumulative_time);
+		elapsed = sieve_lattice_gpu(obj, poly, c, gpu_data);
 #else
-		elapsed = sieve_lattice_cpu(obj, poly, c,
-				deadline - cumulative_time);
+		elapsed = sieve_lattice_cpu(obj, poly, c);
 #endif
 
 		cumulative_time += elapsed;
