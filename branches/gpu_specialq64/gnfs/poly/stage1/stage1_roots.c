@@ -230,7 +230,7 @@ sieve_add_aprog(sieve_fb_t *s, poly_coeff_t *c, uint32 p,
 		power *= p;
 		a->powers[i].power = power;
 
-		nmodp = mpz_tdiv_ui(c->trans_N, (mp_limb_t)power);
+		nmodp = mpz_tdiv_ui(c->trans_N, (unsigned long)power);
 
 		for (j = 0; j < num_roots; j++)
 			a->powers[i].roots[j] = lift_root_32(nmodp,
@@ -401,7 +401,7 @@ lift_roots(sieve_fb_t *s, poly_coeff_t *c, uint64 p, uint32 num_roots)
 
 		mpz_powm_ui(s->tmp1, s->roots[i], degree, s->pp);
 		mpz_sub(s->tmp1, s->nmodpp, s->tmp1);
-		if (mpz_cmp_ui(s->tmp1, (mp_limb_t)0) < 0)
+		if (mpz_cmp_ui(s->tmp1, (unsigned long)0) < 0)
 			mpz_add(s->tmp1, s->tmp1, s->pp);
 		mpz_tdiv_q(s->tmp1, s->tmp1, s->p);
 
@@ -436,7 +436,7 @@ combine_roots(sieve_fb_t *s, uint64 p,
 		/* no CRT needed */
 
 		for (i = 0; i < num_roots[0]; i++)
-			mpz_set_ui(s->roots[i], (mp_limb_t)roots[0][i]);
+			mpz_set_ui(s->roots[i], (unsigned long)roots[0][i]);
 
 		return MIN(num_roots[0], s->num_roots_max);
 	}
@@ -447,7 +447,7 @@ combine_roots(sieve_fb_t *s, uint64 p,
 		prod[i] = p / p_i[i];
 		prod[i] *= mp_modinv_1((uint32)(prod[i] % p_i[i]), p_i[i]);
 	}
-	mpz_set_ui(s->accum[i], (mp_limb_t)0);
+	mpz_set_ui(s->accum[i], (unsigned long)0);
 	uint64_2gmp(p, s->p);
 
 #if MAX_P_FACTORS > 7
@@ -464,43 +464,43 @@ combine_roots(sieve_fb_t *s, uint64 p,
 		for (i6 = num_roots[6] - 1; (int32)i6 >= 0; i6--) {
 			uint64_2gmp(prod[6], s->accum[6]);
 			mpz_mul_ui(s->accum[6], s->accum[6], 
-						(mp_limb_t)roots[6][i6]);
+						(unsigned long)roots[6][i6]);
 			mpz_add(s->accum[6], s->accum[6], s->accum[7]);
 	case 6:
 		for (i5 = num_roots[5] - 1; (int32)i5 >= 0; i5--) {
 			uint64_2gmp(prod[5], s->accum[5]);
 			mpz_mul_ui(s->accum[5], s->accum[5], 
-						(mp_limb_t)roots[5][i5]);
+						(unsigned long)roots[5][i5]);
 			mpz_add(s->accum[5], s->accum[5], s->accum[6]);
 	case 5:
 		for (i4 = num_roots[4] - 1; (int32)i4 >= 0; i4--) {
 			uint64_2gmp(prod[4], s->accum[4]);
 			mpz_mul_ui(s->accum[4], s->accum[4], 
-						(mp_limb_t)roots[4][i4]);
+						(unsigned long)roots[4][i4]);
 			mpz_add(s->accum[4], s->accum[4], s->accum[5]);
 	case 4:
 		for (i3 = num_roots[3] - 1; (int32)i3 >= 0; i3--) {
 			uint64_2gmp(prod[3], s->accum[3]);
 			mpz_mul_ui(s->accum[3], s->accum[3], 
-						(mp_limb_t)roots[3][i3]);
+						(unsigned long)roots[3][i3]);
 			mpz_add(s->accum[3], s->accum[3], s->accum[4]);
 	case 3:
 		for (i2 = num_roots[2] - 1; (int32)i2 >= 0; i2--) {
 			uint64_2gmp(prod[2], s->accum[2]);
 			mpz_mul_ui(s->accum[2], s->accum[2], 
-						(mp_limb_t)roots[2][i2]);
+						(unsigned long)roots[2][i2]);
 			mpz_add(s->accum[2], s->accum[2], s->accum[3]);
 	case 2:
 		for (i1 = num_roots[1] - 1; (int32)i1 >= 0; i1--) {
 			uint64_2gmp(prod[1], s->accum[1]);
 			mpz_mul_ui(s->accum[1], s->accum[1], 
-						(mp_limb_t)roots[1][i1]);
+						(unsigned long)roots[1][i1]);
 			mpz_add(s->accum[1], s->accum[1], s->accum[2]);
 
 		for (i0 = num_roots[0] - 1; (int32)i0 >= 0; i0--) {
 			uint64_2gmp(prod[0], s->accum[0]);
 			mpz_mul_ui(s->accum[0], s->accum[0], 
-						(mp_limb_t)roots[0][i0]);
+						(unsigned long)roots[0][i0]);
 			mpz_add(s->accum[0], s->accum[0], s->accum[1]);
 
 			mpz_tdiv_r(s->accum[0], s->accum[0], s->p);
@@ -686,7 +686,7 @@ sieve_fb_next(void *s_in, poly_coeff_t *c,
 
 			for (i = 0; i < num_roots; i++)
 				mpz_set_ui(s->roots[i],
-					(mp_limb_t)roots[i]);
+					(unsigned long)roots[i]);
 		}
 		else {
 			return 0;
