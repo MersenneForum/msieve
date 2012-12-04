@@ -82,7 +82,7 @@ endif
 # win32 or win64, so it's safe to pull libpthread into the link line.
 # Of course this does mean you have to install the minGW pthreads bundle...
 
-LIBS += -lgmp -lm -lpthread -ldl
+LIBS += -lgmp -lm -lpthread
 
 #---------------------------------- Generic file lists -------------------
 
