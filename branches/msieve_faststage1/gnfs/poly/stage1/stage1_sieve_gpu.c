@@ -1008,7 +1008,7 @@ load_sort_engine(msieve_obj *obj, device_data_t *d)
 	else
 		arch = "sm10";
 
-	sprintf(libname, "sort_engine_%s%s", arch, suffix);
+	sprintf(libname, "b40c/sort_engine_%s%s", arch, suffix);
 
 	/* override from input args */
 
@@ -1288,23 +1288,9 @@ void gpu_data_free(void *gpu_data)
 	device_data_t *d = (device_data_t *)gpu_data;
 
 	if (!(d->obj->flags & MSIEVE_FLAG_STOP_SIEVING)) {
+		/* we're allowed to try to shut down gracefully */
 
-		/* we're allowed to try to shut down gracefully;
-		   give the stage 1 thread pool a few seconds
-		   to try and empty, then give up and free it */
-
-		uint32 i;
-
-		for (i = 0; i < 5; i++) {
-			if (threadpool_drain(d->gpu_threadpool, 0) == 0)
-				break;
-
-#if defined(WIN32) || defined(_WIN64)
-			Sleep(1000);
-#else
-			sleep(1);
-#endif
-		}
+		threadpool_drain(d->gpu_threadpool, 1);
 	}
 
 	/* shut down the GPU threadpool first, since
