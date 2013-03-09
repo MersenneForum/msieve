@@ -237,13 +237,13 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	merge_t merge;
 	uint32 filtmin_r, filtmin_a;
 	uint32 entries_r, entries_a;
-	uint32 num_relations;
-	uint32 relations_needed = 0;
+	uint64 num_relations;
+	uint64 max_relations = 0;
+	uint64 relations_needed = 0;
 	factor_base_t fb;
 	time_t wall_time = time(NULL);
 	uint64 savefile_size = get_file_size(obj->savefile.name);
 	uint64 ram_size = 0;
-	uint32 max_relations = 0;
 	uint32 filter_bound = 0;
 	double target_density = 0;
 	char lp_filename[256];
@@ -266,7 +266,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 
 		tmp = strstr(obj->nfs_args, "filter_maxrels=");
 		if (tmp != NULL) {
-			max_relations = strtoul(tmp + 15, NULL, 10);
+			max_relations = strtoull(tmp + 15, NULL, 10);
 			logprintf(obj, "setting max relations to %u\n",
 					max_relations);
 		}
@@ -292,11 +292,11 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 			const char *tmp0 = tmp - 1;
 			while (tmp0 > obj->nfs_args && isdigit(tmp0[-1]))
 				tmp0--;
-			max_relations = strtoul(tmp + 1, NULL, 10);
+			max_relations = strtoull(tmp + 1, NULL, 10);
 			filter_bound = strtoul(tmp0, NULL, 10);
 
-			logprintf(obj, "setting max relations to %u\n",
-					max_relations);
+			logprintf(obj, "setting max relations to %" 
+					PRIu64 "\n", max_relations);
 			logprintf(obj, "setting large prime bound to %u\n",
 					filter_bound);
 		}
@@ -323,7 +323,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 					max_relations, &num_relations);
 	if (filter_bound > 0)
 		filtmin_r = filtmin_a = filter_bound;
-
+#if 0
 	/* set up the first disk-based pass; if the dataset is
 	   "small", this will be the only such pass */
 
@@ -417,6 +417,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	filter_postproc_relsets(obj, &merge);
 	filter_dump_relsets(obj, &merge);
 	filter_free_relsets(&merge);
+#endif
 	wall_time = time(NULL) - wall_time;
 	logprintf(obj, "RelProcTime: %u\n", (uint32)wall_time);
 finished:

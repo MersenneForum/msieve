@@ -21,6 +21,7 @@ $Id$
 /* include basic stuff */
 
 #include <common.h>
+#include <db.h>
 
 #ifdef __cplusplus
 extern "C" {

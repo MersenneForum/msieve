@@ -14,228 +14,175 @@ $Id$
 
 #include "filter.h"
 
-/* produce <savefile_name>.d, a binary file containing the
-   line numbers of relations in the savefile that should *not*
-   graduate to the singleton removal (or are just plain invalid).
+/*--------------------------------------------------------------------*/
+static int compare_relations(DB *db, const DBT *rel1,
+				const DBT *rel2)
+{
+	int64 a1, a2;
+	uint32 b1, b2;
 
-   This code has to touch all of the relations, and when the
-   dataset is large avoiding excessive memory use is tricky.
-   Cavallar's paper suggests dropping relations into a hashtable
-   and ignoring relations that map to the same hash bin. This keeps
-   memory use down but causes good relations to be thrown away.
-   Another option is to put the (a,b) values of relations into the
-   hashtable, so that hash collisions can be resolved rigorously.
-   Unfortunately this means we have to budget 12 bytes for each
-   unique relation, and there could be tens (hundreds!) of millions 
-   of them.
+	memcpy(&a1, rel1->data, sizeof(int64));
+	memcpy(&b1, (uint8 *)rel1->data + sizeof(int64), sizeof(uint32));
+	memcpy(&a2, rel2->data, sizeof(int64));
+	memcpy(&b2, (uint8 *)rel2->data + sizeof(int64), sizeof(uint32));
 
-   The implementation here is a compromise: we do duplicate removal
-   in two passes. The first pass maps relations into a hashtable
-   of bits, and we save (on disk) the list of hash bins where two 
-   or more relations collide. The second pass refills the hashtable
-   of bits with just these entries, then reads through the complete
-   dataset again and saves the (a,b) values of any relation that
-   maps to one of the filled-in hash bins. The memory use in the
-   first pass is constant, and the memory use of the second pass
-   is 12 bytes per duplicate relation. Assuming unique relations
-   greatly outnumber duplicates, this solution finds all the duplicates
-   with no false positives, and the memory use is low enough so
-   that singleton filtering is a larger memory bottleneck 
-   
-   One useful optimization for really big problems would turn the
-   first-pass hashtable into a Bloom filter using several hash
-   functions. This would make it much more effective at avoiding
-   false positives as the hashtable gets more congested */
+	if (b1 > b2)
+		return 1;
+	if (b1 < b2)
+		return -1;
 
-static const uint8 hashmask[] = {0x01, 0x02, 0x04, 0x08,
-				 0x10, 0x20, 0x40, 0x80};
+	if (a1 > a2)
+		return 1;
+	if (a1 < a2)
+		return -1;
 
-static uint32 purge_duplicates_pass2(msieve_obj *obj,
-				uint32 log2_hashtable1_size,
-				uint32 max_relations) {
-
-	savefile_t *savefile = &obj->savefile;
-	FILE *bad_relation_fp;
-	FILE *collision_fp;
-	FILE *out_fp;
-	uint32 i;
-	char buf[LINE_BUF_SIZE];
-	uint32 num_duplicates;
-	uint32 num_relations;
-	uint32 next_bad_relation;
-	uint32 curr_relation;
-	uint8 *bit_table;
-	hashtable_t duplicates;
-	uint32 key[2];
-
-	logprintf(obj, "commencing duplicate removal, pass 2\n");
-
-	/* fill in the list of hash collisions */
-
-	sprintf(buf, "%s.hc", savefile->name);
-	collision_fp = fopen(buf, "rb");
-	if (collision_fp == NULL) {
-		logprintf(obj, "error: dup2 can't open collision file\n");
-		exit(-1);
-	}
-	bit_table = (uint8 *)xcalloc(
-			(size_t)1 << (log2_hashtable1_size - 3), 
-			sizeof(uint8));
-
-	while (fread(&i, (size_t)1, sizeof(uint32), collision_fp) != 0) {
-		if (i < ((uint32)1 << log2_hashtable1_size)) {
-			bit_table[i / 8] |= 1 << (i % 8);
-		}
-	}
-	fclose(collision_fp);
-
-	/* set up for reading the list of relations */
-
-	savefile_open(savefile, SAVEFILE_READ);
-	sprintf(buf, "%s.br", savefile->name);
-	bad_relation_fp = fopen(buf, "rb");
-	if (bad_relation_fp == NULL) {
-		logprintf(obj, "error: dup2 can't open rel file\n");
-		exit(-1);
-	}
-	sprintf(buf, "%s.d", savefile->name);
-	out_fp = fopen(buf, "wb");
-	if (out_fp == NULL) {
-		logprintf(obj, "error: dup2 can't open output file\n");
-		exit(-1);
-	}
-	hashtable_init(&duplicates, (uint32)WORDS_IN(key), 0);
-
-	num_duplicates = 0;
-	num_relations = 0;
-	curr_relation = (uint32)(-1);
-	next_bad_relation = (uint32)(-1);
-	fread(&next_bad_relation, (size_t)1, 
-			sizeof(uint32), bad_relation_fp);
-	savefile_read_line(buf, sizeof(buf), savefile);
-
-	while (!savefile_eof(savefile)) {
-		
-		uint32 hashval;
-		int64 a;
-		uint32 b;
-		char *next_field;
-
-		if (buf[0] != '-' && !isdigit(buf[0])) {
-
-			/* no relation on this line */
-
-			savefile_read_line(buf, sizeof(buf), savefile);
-			continue;
-		}
-		if (++curr_relation == next_bad_relation) {
-
-			/* this relation isn't valid; save it and
-			   read in the next invalid relation line number */
-
-			fwrite(&curr_relation, (size_t)1, 
-					sizeof(uint32), out_fp);
-			fread(&next_bad_relation, (size_t)1, 
-					sizeof(uint32), bad_relation_fp);
-			savefile_read_line(buf, sizeof(buf), savefile);
-			continue;
-		}
-
-		if (max_relations && curr_relation >= max_relations)
-			break;
-
-		/* determine if the (a,b) coordinates of the
-		   relation collide in the table of bits */
-
-		a = strtoll(buf, &next_field, 10);
-		b = strtoul(next_field + 1, NULL, 10);
-		key[0] = (uint32)a;
-		key[1] = ((a >> 32) & 0x1f) | (b << 5);
-
-		hashval = (HASH1(key[0]) ^ HASH2(key[1])) >>
-				(32 - log2_hashtable1_size);
-
-		if (bit_table[hashval/8] & hashmask[hashval % 8]) {
-
-			/* relation collides in the first hashtable;
-			   use the second hashtable to determine 
-			   rigorously if the relation was previously seen */
-
-			uint32 is_dup;
-			hashtable_find(&duplicates, key, NULL, &is_dup);
-
-			if (!is_dup) {
-
-				/* relation was seen for the first time;
-				   doesn't count as a duplicate */
-
-				num_relations++;
-			}
-			else {
-				/* relation was previously seen; this
-				   time it's a duplicate */
-
-				fwrite(&curr_relation, (size_t)1, 
-						sizeof(uint32), out_fp);
-				num_duplicates++;
-			}
-		}
-		else {
-			/* no collision; relation is unique */
-
-			num_relations++;
-		}
-
-		savefile_read_line(buf, sizeof(buf), savefile);
-	}
-
-	logprintf(obj, "found %u duplicates and %u unique relations\n", 
-				num_duplicates, num_relations);
-	logprintf(obj, "memory use: %.1f MB\n", 
-			(double)((1 << (log2_hashtable1_size-3)) +
-			hashtable_sizeof(&duplicates)) / 1048576);
-
-	/* clean up and finish */
-
-	savefile_close(savefile);
-	fclose(bad_relation_fp);
-	fclose(out_fp);
-	sprintf(buf, "%s.hc", savefile->name);
-	remove(buf);
-	sprintf(buf, "%s.br", savefile->name);
-	remove(buf);
-
-	free(bit_table);
-	hashtable_free(&duplicates);
-	return num_relations;
+	return 0;
 }
 
 /*--------------------------------------------------------------------*/
-static double estimate_rel_size(savefile_t *savefile) {
+static int compress_relation(DB *db, 
+			const DBT *prev_key, const DBT *prev_data, 
+			const DBT *key, const DBT *data, 
+			DBT *dest)
+{
+	int64 a2;
+	uint32 b1, b2;
+	uint32 count = 0;
+	uint8 a_neg = 0;
+	uint8 b_diff_zero = 0;
+	uint8 tmp[24];
 
-	uint32 i;
-	char buf[LINE_BUF_SIZE];
-	uint32 num_relations = 0;
-	uint32 totlen = 0;
+	memcpy(&b1, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
+	memcpy(&a2, key->data, sizeof(int64));
+	memcpy(&b2, (uint8 *)key->data + sizeof(int64), sizeof(uint32));
 
-	savefile_open(savefile, SAVEFILE_READ);
-	savefile_read_line(buf, sizeof(buf), savefile);
-	for (i = 0; i < 100 && !savefile_eof(savefile); i++) {
+	if (a2 < 0) {
+		a_neg = 2;
+		a2 = -a2;
+	}
+	if (b1 == b2)
+		b_diff_zero = 1;
 
-		if (buf[0] != '-' && !isdigit(buf[0])) {
-			/* no relation on this line */
-			savefile_read_line(buf, sizeof(buf), savefile);
-			continue;
-		}
+	count = compress_p(tmp, 
+			a2 << 2 | a_neg | b_diff_zero, 
+			count);
 
-		num_relations++;
-		totlen += strlen(buf);
+	if (!b_diff_zero)
+		count = compress_p(tmp, b2 - b1, count);
+
+	/* the BDB docs only show this in an example and not in the
+	   API reference, but the compressed buffer is going to have 
+	   several key/data pairs concatenated, and the decompression
+	   routine has to have each relation know how large its 
+	   compressed version is because it cannot blindly use the
+	   size of the compressed buffer */
+
+	count = compress_p(tmp, data->size, count);
+
+	dest->size = count + data->size;
+	if (dest->ulen < dest->size)
+		return DB_BUFFER_SMALL;
+
+	memcpy(dest->data, tmp, count);
+	memcpy((uint8 *)dest->data + count, data->data, data->size);
+	return 0;
+}
+
+/*--------------------------------------------------------------------*/
+static int decompress_relation(DB *db, 
+		const DBT *prev_key, const DBT *prev_data, 
+		DBT *compressed, 
+		DBT *key, DBT *data)
+
+{
+	uint64 a2;
+	uint32 b1, b2;
+	uint32 b_diff_zero;
+	uint32 a_neg;
+	uint32 count = 0;
+	uint32 data_size;
+
+	a2 = decompress_p((uint8 *)compressed->data, &count);
+	a_neg = a2 & 2;
+	b_diff_zero = a2 & 1;
+	a2 >>= 2;
+	if (a_neg)
+		a2 = -a2;
+
+	memcpy(&b2, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
+	if (!b_diff_zero)
+		b1 += (uint32)decompress_p((uint8 *)compressed->data, &count);
+
+	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
+
+	key->size = sizeof(uint64) + sizeof(uint32);
+	data->size = data_size;
+	if (key->ulen < key->size || data->ulen < data->size)
+		return DB_BUFFER_SMALL;
+
+	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
+	memcpy(key->data, &a2, sizeof(uint64));
+	memcpy((uint8 *)key->data + sizeof(uint64), &b2, sizeof(uint32));
+
+	/* the BDB docs only show this in an example and not in the
+	   API reference, but the compressed buffer needs to know
+	   how many bytes the current relation needed */
+
+	compressed->size = count + data_size;
+	return 0;
+}
+
+/*--------------------------------------------------------------------*/
+static DB * init_relation_db(msieve_obj *obj, char *name, uint32 open_flags)
+{
+	DB * reldb = NULL;
+	int32 status;
+
+	status = db_create(&reldb, NULL, 0);
+	if (status != 0) {
+		logprintf(obj, "DB creation failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
 	}
 
-	savefile_close(savefile);
-	if (num_relations == 0)
-		return 0;
-	return (double)totlen / num_relations;
+	status = reldb->set_cachesize(reldb, 0, 100*1024*1024, 0);
+	if (status != 0) {
+		logprintf(obj, "DB set cache failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
+	}
+
+	status = reldb->set_bt_compare(reldb, compare_relations);
+	if (status != 0) {
+		logprintf(obj, "DB set compare fcn failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
+	}
+
+	status = reldb->set_bt_compress(reldb, compress_relation,
+				decompress_relation);
+	if (status != 0) {
+		logprintf(obj, "DB set compress fcn failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
+	}
+
+	status = reldb->open(reldb, NULL, name, NULL, DB_BTREE, 
+				open_flags, 
+				(open_flags & DB_RDONLY) ? 0444 : 0664);
+	if (status != 0) {
+		logprintf(obj, "DB open failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
+	}
+
+	return reldb;
+
+error_finished:
+	if (reldb)
+		reldb->close(reldb, 0);
+	return NULL;
+
 }
 
 /*--------------------------------------------------------------------*/
@@ -244,103 +191,103 @@ static double estimate_rel_size(savefile_t *savefile) {
 #define TARGET_HITS_PER_PRIME 40.0
 
 uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
-				uint32 max_relations, 
-				uint32 *num_relations_out) {
+				uint64 max_relations, 
+				uint64 *num_relations_out) {
 
 	uint32 i;
+	int32 status;
 	savefile_t *savefile = &obj->savefile;
-	FILE *bad_relation_fp;
-	FILE *collision_fp;
-	uint32 curr_relation;
 	char buf[LINE_BUF_SIZE];
-	uint32 num_relations;
-	uint32 num_collisions;
-	uint32 num_skipped_b;
-	uint8 *hashtable;
-	uint32 blob[2];
-	uint32 log2_hashtable1_size;
-	double rel_size = estimate_rel_size(savefile);
+	uint64 curr_relation;
+	uint64 num_relations;
+	uint64 num_skipped_b;
+	uint32 batch_size;
 	mpz_t scratch;
-
-	uint8 *free_relation_bits;
-	uint32 *free_relations;
-	uint32 num_free_relations;
-	uint32 num_free_relations_alloc;
 
 	uint32 *prime_bins;
 	double bin_max;
 
 	uint8 tmp_factors[COMPRESSED_P_MAX_SIZE];
-	uint32 array_size;
 	relation_t tmp_rel;
 
-	tmp_rel.factors = tmp_factors;
+	DB * reldb;
+	DBT store_buf;
+	void *store_ptr;
 
-	logprintf(obj, "commencing duplicate removal, pass 1\n");
+	logprintf(obj, "commencing duplicate removal\n");
+
+	tmp_rel.factors = tmp_factors + 2;
 
 	savefile_open(savefile, SAVEFILE_READ);
-	sprintf(buf, "%s.br", savefile->name);
-	bad_relation_fp = fopen(buf, "wb");
-	if (bad_relation_fp == NULL) {
-		logprintf(obj, "error: dup1 can't open relation file\n");
+
+	sprintf(buf, "%s.db", savefile->name);
+	reldb = init_relation_db(obj, buf, DB_CREATE | DB_TRUNCATE);
+//	reldb = init_relation_db(obj, buf, DB_RDONLY);
+	if (reldb == NULL) {
+		printf("error opening relation DB\n");
 		exit(-1);
 	}
-	sprintf(buf, "%s.hc", savefile->name);
-	collision_fp = fopen(buf, "wb");
-	if (collision_fp == NULL) {
-		logprintf(obj, "error: dup1 can't open collision file\n");
-		exit(-1);
+#if 0
+	{
+		DBC *dbc;
+		DBT key, data;
+
+		memset(&key, 0, sizeof(DBT));
+		memset(&data, 0, sizeof(DBT));
+
+		status = reldb->cursor(reldb, NULL, &dbc, DB_CURSOR_BULK);
+		if (status != 0) {
+			logprintf(obj, "DBC open failed: %s\n",
+						db_strerror(status));
+			exit(-1);
+		}
+
+		while ((status = dbc->get(dbc, &key, 
+				&data, DB_NEXT)) != DB_NOTFOUND) {
+
+			if (status != 0) {
+				logprintf(obj, "DBC get failed: %s\n",
+							db_strerror(status));
+				exit(-1);
+			}
+
+			printf("%u %u\t", key.size, data.size);
+			if (key.size == 12) {
+				int64 a;
+				uint32 b;
+				memcpy(&a, key.data, 8);
+				memcpy(&b, (uint8 *)key.data + 8, 4);
+				printf("%u %" PRId64 , b, a);
+			}
+			printf("\n");
+		}
+		dbc->close(dbc);
+		reldb->close(reldb, 0);
+		exit(0);
 	}
+#endif
+	memset(&store_buf, 0, sizeof(DBT));
+	store_buf.data = xcalloc(1, 30*1024*1024);
+	store_buf.ulen = 30*1024*1024;
+	store_buf.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+	DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 
-	/* figure out how large the stage 1 hashtable should be.
-	   We want there to be many more bins in the hashtable than
-	   relations in the savefile, but it takes too long to
-	   actually count the relations. So we estimate the average
-	   relation size and then the number of relations */
-
-	log2_hashtable1_size = 28;
-	if (rel_size > 0.0) {
-		double num_rels; /* estimated */
-#if 0 /* WAS: !defined(WIN32) && !defined(_WIN64) */
-		if (savefile->isCompressed) {
-			char name_gz[256];
-			sprintf(name_gz, "%s.gz", savefile->name);
-			num_rels = get_file_size(name_gz) / 0.55 / rel_size;
-		} else 
-#endif /* get_file_size( ) will now do the same internally */
-			num_rels = get_file_size(savefile->name) / rel_size;
-		log2_hashtable1_size = log(num_rels * 10.0) / M_LN2 + 0.5;
-	}
-	if (log2_hashtable1_size < 25)
-		log2_hashtable1_size = 25;
-	if (log2_hashtable1_size > 31)
-		log2_hashtable1_size = 31;
-
-	hashtable = (uint8 *)xcalloc((size_t)1 << 
-				(log2_hashtable1_size - 3), sizeof(uint8));
 	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
 					sizeof(uint32));
 
-	/* set up the structures for tracking free relations */
-
-	free_relation_bits = (uint8 *)xcalloc(
-				((size_t)(FREE_RELATION_LIMIT/2) + 7) / 8,
-				(size_t)1);
-	num_free_relations = 0;
-	num_free_relations_alloc = 5000;
-	free_relations = (uint32 *)xmalloc(num_free_relations_alloc *
-						sizeof(uint32));
-
-	curr_relation = (uint32)(-1);
 	num_relations = 0;
-	num_collisions = 0;
+	curr_relation = 0;
 	num_skipped_b = 0;
+	batch_size = 0;
 	mpz_init(scratch);
 	savefile_read_line(buf, sizeof(buf), savefile);
+
 	while (!savefile_eof(savefile)) {
 
-		int32 status;
-		uint32 hashval;
+		uint32 num_r, num_a;
+		uint32 array_size;
+		uint8 *rel_key;
+		uint8 *rel_data;
 
 		if (buf[0] != '-' && !isdigit(buf[0])) {
 
@@ -357,98 +304,86 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 			break;
 
 		status = nfs_read_relation(buf, fb, &tmp_rel, 
-					&array_size, 1, scratch);
+					&array_size, 0, scratch);
 		if (status != 0) {
-
-			/* save the line number of bad relations (hopefully
-			   there are very few of them) */
-
-			fwrite(&curr_relation, (size_t)1, 
-					sizeof(uint32), bad_relation_fp);
 			if (status == -99)
 				num_skipped_b++;
 			else
-			    logprintf(obj, "error %d reading relation %u\n",
-					status, curr_relation);
+			    logprintf(obj, "error %d reading "
+					"relation %" PRIu64 "\n",
+					status, num_relations);
 			savefile_read_line(buf, sizeof(buf), savefile);
 			continue;
 		}
 
-		if (curr_relation > 0 && (curr_relation % 10000000 == 0)) {
-			printf("read %uM relations\n", curr_relation / 1000000);
-		} /* there are no more errors -6/-11 to see progress */
-
-		/* relation is good; find the value to which it
-		   hashes. Note that only the bottom 35 bits of 'a'
-		   and the bottom 29 bits of 'b' figure into the hash,
-		   so that spurious hash collisions are possible
-		   (though highly unlikely) */
+		if (tmp_rel.b == 0) {
+			/* skip free relations; we'll add them in later */
+			savefile_read_line(buf, sizeof(buf), savefile);
+			continue;
+		}
 
 		num_relations++;
-		blob[0] = (uint32)tmp_rel.a;
-		blob[1] = ((tmp_rel.a >> 32) & 0x1f) |
-			  (tmp_rel.b << 5);
-
-		hashval = (HASH1(blob[0]) ^ HASH2(blob[1])) >>
-			   (32 - log2_hashtable1_size);
-
-		/* save the hash bucket if there's a collision. We
-		   don't need to save any more collisions to this bucket,
-		   but future duplicates could cause the same bucket to
-		   be saved more than once. We can cut the number of
-		   redundant bucket reports in half by resetting the
-		   bit to zero */
-
-		if (hashtable[hashval / 8] & hashmask[hashval % 8]) {
-			fwrite(&hashval, (size_t)1, 
-					sizeof(uint32), collision_fp);
-			num_collisions++;
-			hashtable[hashval / 8] &= ~hashmask[hashval % 8];
-		}
-		else {
-			hashtable[hashval / 8] |= hashmask[hashval % 8];
+		if (num_relations % 10000000 == 0) {
+			printf("read %" PRIu64 "M relations\n", 
+					curr_relation / 1000000);
 		}
 
-		if (tmp_rel.b == 0) {
-			/* remember any free relations that are found */
+		/* relation is good; queue for DB write */
 
-			if (num_free_relations == num_free_relations_alloc) {
-				num_free_relations_alloc *= 2;
-				free_relations = (uint32 *)xrealloc(
-						free_relations,
-						num_free_relations_alloc *
-						sizeof(uint32));
+		num_r = tmp_rel.num_factors_r;
+		num_a = tmp_rel.num_factors_a;
+
+		DB_MULTIPLE_KEY_RESERVE_NEXT(store_ptr, &store_buf,
+				rel_key, sizeof(uint32)+sizeof(int64),
+				rel_data, array_size + 2);
+
+		batch_size++;
+		if (rel_key == NULL || rel_data == NULL) {
+
+			/* relation doesn't fit, commit the batch and
+			   start the next */
+
+			printf("batch size %u\n", batch_size);
+			status = reldb->sort_multiple(reldb, &store_buf,
+					NULL, DB_MULTIPLE_KEY);
+			if (status != 0) {
+				logprintf(obj, "DB bulk sort failed: %s\n",
+						db_strerror(status));
+				exit(-1);
 			}
-			free_relations[num_free_relations++] =
-						(uint32)(tmp_rel.a);
-		}
-		else {
-			uint32 num_r = tmp_rel.num_factors_r;
-			uint32 num_a = tmp_rel.num_factors_a;
 
-			for (i = array_size = 0; i < num_r + num_a; i++) {
-				uint64 p = decompress_p(tmp_rel.factors, 
-							&array_size);
-
-				/* add the factors of tmp_rel to the 
-				   counts of (32-bit) primes */
-		   
-				if (p >= ((uint64)1 << 32))
-					continue;
-
-				prime_bins[p / BIN_SIZE]++;
-
-				/* schedule the adding of a free relation
-				   for each algebraic factor */
-				
-				if (i >= num_r &&
-				    p > MAX_PACKED_PRIME &&
-				    p < FREE_RELATION_LIMIT) {
-					p = p / 2;
-					free_relation_bits[p / 8] |= 
-							hashmask[p % 8];
-				}
+			status = reldb->put(reldb, NULL, &store_buf,
+					NULL, DB_MULTIPLE_KEY);
+			if (status != 0) {
+				logprintf(obj, "DB bulk write failed: %s\n",
+						db_strerror(status));
+				exit(-1);
 			}
+
+			DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
+
+			DB_MULTIPLE_KEY_RESERVE_NEXT(store_ptr, &store_buf,
+					rel_key, sizeof(int64)+sizeof(uint32),
+					rel_data, array_size + 2);
+			batch_size = 1;
+		}
+
+		memcpy(rel_key, &tmp_rel.a, sizeof(int64));
+		memcpy(rel_key + sizeof(int64), &tmp_rel.b, sizeof(uint32));
+		rel_data[0] = num_r;
+		rel_data[1] = num_a;
+		memcpy(rel_data + 2, tmp_rel.factors, array_size);
+
+		/* add the factors of tmp_rel to the counts of (32-bit) primes */
+	   
+		for (i = array_size = 0; i < num_r + num_a; i++) {
+			uint64 p = decompress_p(tmp_rel.factors, 
+						&array_size);
+
+			if (p >= ((uint64)1 << 32))
+				continue;
+
+			prime_bins[p / BIN_SIZE]++;
 		}
 
 		/* get the next line */
@@ -456,57 +391,74 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 		savefile_read_line(buf, sizeof(buf), savefile);
 	}
 
-	mpz_clear(scratch);
-	free(hashtable);
-	savefile_close(savefile);
-	fclose(bad_relation_fp);
-	fclose(collision_fp);
-
-	if (num_skipped_b > 0)
-		logprintf(obj, "skipped %d relations with b > 2^32\n",
-				num_skipped_b);
-	logprintf(obj, "found %u hash collisions in %u relations\n", 
-				num_collisions, num_relations);
-
-	if (max_relations == 0 || max_relations > curr_relation + 1) {
-
-		/* cancel out any free relations that are 
-		   already present in the dataset, then add
-		   free relations that remain */
-
-		for (i = 0; i < num_free_relations; i++) {
-			uint32 p = free_relations[i];
-
-			if (p < FREE_RELATION_LIMIT) {
-				p = p / 2;
-				free_relation_bits[p / 8] &= ~hashmask[p % 8];
-			}
+	/* commit the final batch */
+	printf("batch size %u\n", batch_size);
+	if (batch_size > 0) {
+		status = reldb->sort_multiple(reldb, &store_buf,
+				NULL, DB_MULTIPLE_KEY);
+		if (status != 0) {
+			logprintf(obj, "DB bulk sort failed: %s\n",
+					db_strerror(status));
+			exit(-1);
 		}
-		num_relations += add_free_relations(obj, fb,
-					free_relation_bits);
-	}
-	free(free_relations);
-	free(free_relation_bits);
 
-	if (num_collisions == 0) {
-
-		/* no duplicates; no second pass is necessary */
-
-		char buf2[256];
-		sprintf(buf, "%s.hc", savefile->name);
-		remove(buf);
-		sprintf(buf, "%s.br", savefile->name);
-		sprintf(buf2, "%s.d", savefile->name);
-		if (rename(buf, buf2) != 0) {
-			logprintf(obj, "error: dup1 can't rename outfile\n");
+		status = reldb->put(reldb, NULL, &store_buf,
+					NULL, DB_MULTIPLE_KEY);
+		if (status != 0) {
+			logprintf(obj, "DB bulk write failed: %s\n",
+							db_strerror(status));
 			exit(-1);
 		}
 	}
-	else {
-		num_relations = purge_duplicates_pass2(obj,
-					log2_hashtable1_size,
-					max_relations);
+	free(store_buf.data);
+
+	reldb->stat_print(reldb, DB_STAT_ALL);
+
+	status = reldb->close(reldb, 0);
+	if (status != 0) {
+		logprintf(obj, "DB close failed: %s\n",
+						db_strerror(status));
+		exit(-1);
 	}
+
+	sprintf(buf, "%s.db", savefile->name);
+	printf("file size %" PRIu64 "\n", get_file_size(buf));
+
+	reldb = init_relation_db(obj, buf, 0);
+	if (reldb == NULL) {
+		printf("error opening relation DB\n");
+		exit(-1);
+	}
+
+	printf("compacting DB...\n");
+
+	reldb->compact(reldb, NULL, NULL, NULL, 
+			NULL, DB_FREE_SPACE, NULL);
+	if (status != 0) {
+		logprintf(obj, "DB compact failed: %s\n",
+						db_strerror(status));
+		exit(-1);
+	}
+
+	reldb->stat_print(reldb, DB_STAT_ALL);
+
+	status = reldb->close(reldb, 0);
+	if (status != 0) {
+		logprintf(obj, "DB close failed: %s\n",
+						db_strerror(status));
+		exit(-1);
+	}
+
+	printf("file size %" PRIu64 "\n", get_file_size(buf));
+
+	mpz_clear(scratch);
+	savefile_close(savefile);
+
+	if (num_skipped_b > 0)
+		logprintf(obj, "skipped %" PRIu64 
+				" relations with b > 2^32\n",
+				num_skipped_b);
+	logprintf(obj, "found %" PRIu64 " relations\n", num_relations);
 
 	/* the large prime cutoff for the rest of the filtering
 	   process should be chosen here. We don't want the bound
@@ -520,10 +472,10 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	i = 1 << (32 - LOG2_BIN_SIZE);
 	bin_max = (double)BIN_SIZE * i /
-			log((double)BIN_SIZE * i);
+			(log((double)BIN_SIZE * i) - 1);
 	for (i--; i > 2; i--) {
 		double bin_min = (double)BIN_SIZE * i /
-				log((double)BIN_SIZE * i);
+				(log((double)BIN_SIZE * i) - 1);
 		double hits_per_prime = (double)prime_bins[i] /
 						(bin_max - bin_min);
 		if (hits_per_prime > TARGET_HITS_PER_PRIME)
