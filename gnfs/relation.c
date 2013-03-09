@@ -122,7 +122,7 @@ int32 nfs_read_relation(char *buf, factor_base_t *fb,
 		p = (uint64)a;
 		if (p == 0 || p >= ((uint64)1 << 32))
 			return -2;
-
+#if 0
 		num_roots = poly_get_zeros(roots, rpoly,
 						(uint32)p, &high_coeff, 0);
 		if (num_roots != rpoly->degree || high_coeff == 0)
@@ -141,6 +141,12 @@ int32 nfs_read_relation(char *buf, factor_base_t *fb,
 		r->num_factors_r = 1;
 		r->num_factors_a = num_roots;
 		*array_size_out = array_size;
+#else
+		array_size = compress_p(factors, p, array_size);
+		r->num_factors_r = 1;
+		r->num_factors_a = 0;
+		*array_size_out = array_size;
+#endif
 		return 0;
 	}
 
