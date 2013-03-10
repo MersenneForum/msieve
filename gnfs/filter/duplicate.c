@@ -305,8 +305,12 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	DB *write_db;
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
-	uint8 last_key[KEY_SIZE] = {0};
 	void *store_ptr;
+
+	DBT start_key, end_key;
+	uint8 prev_key[KEY_SIZE] = {0};
+	uint8 start_buf[KEY_SIZE] = {0};
+	uint8 end_buf[KEY_SIZE];
 
 	uint32 *prime_bins;
 	double bin_max;
@@ -373,6 +377,18 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	   out and read the next relation from its DB, heapifying 
 	   the new collection */
 
+	memset(&start_key, 0, sizeof(DBT));
+	start_key.data = start_buf;
+	start_key.size = KEY_SIZE;
+	start_key.ulen = KEY_SIZE;
+	start_key.flags = DB_DBT_USERMEM;
+
+	memset(&end_key, 0, sizeof(DBT));
+	end_key.data = end_buf;
+	end_key.size = KEY_SIZE;
+	end_key.ulen = KEY_SIZE;
+	end_key.flags = DB_DBT_USERMEM;
+
 	i = 0;
 	num_relations = 0;
 	num_duplicates = 0;
@@ -381,11 +397,11 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 		tmp_db_t *t = tmp_db_ptr[i];
 
-		num_relations++;
-		if (memcmp(t->curr_key.data, last_key, KEY_SIZE) == 0) {
+		if (memcmp(t->curr_key.data, prev_key, KEY_SIZE) == 0) {
 			num_duplicates++;
 		}
 		else {
+			num_relations++;
 			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
 					t->curr_key.data, t->curr_key.size,
 					t->curr_data.data, t->curr_data.size);
@@ -403,13 +419,26 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 					exit(-1);
 				}
 
+				/* all the data in write_db is written in sorted
+				   order, so compact the range we just wrote */
+
+				memcpy(end_buf, t->curr_key.data, KEY_SIZE);
+				status = write_db->compact(write_db, NULL,
+						&start_key, &end_key, NULL, 0, NULL);
+				if (status != 0) {
+					logprintf(obj, "DB compact failed: %s\n",
+							db_strerror(status));
+					exit(-1);
+				}
+				memcpy(start_buf, t->curr_key.data, KEY_SIZE);
+
 				DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
 
 				DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
 						t->curr_key.data, t->curr_key.size,
 						t->curr_data.data, t->curr_data.size);
 			}
-			memcpy(last_key, t->curr_key.data, KEY_SIZE);
+			memcpy(prev_key, t->curr_key.data, KEY_SIZE);
 		}
 
 		status = t->read_curs->get(t->read_curs, 
@@ -421,10 +450,22 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			heapify(tmp_db_ptr + i, 0, j-i);
 	}
 
+	/* commit and compact the last batch; we make
+	   an ending key of 'all bits set' */
+
 	status = write_db->put(write_db, NULL, store_buf,
 				NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
 		logprintf(obj, "DB bulk write failed: %s\n",
+				db_strerror(status));
+		exit(-1);
+	}
+
+	memset(end_buf, 0xff, KEY_SIZE);
+	status = write_db->compact(write_db, NULL,
+			&start_key, &end_key, NULL, 0, NULL);
+	if (status != 0) {
+		logprintf(obj, "DB compact failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
@@ -447,7 +488,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	free(tmp_db_ptr);
 
 	logprintf(obj, "found %" PRIu64 " duplicates and %"
-			PRIu64 " relations\n", 
+			PRIu64 " unique relations\n", 
 			num_duplicates, num_relations);
 #if 0
 	/* the large prime cutoff for the rest of the filtering
@@ -633,6 +674,22 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 			curr_batch_size += batch_size;
 			if (curr_batch_size > cache_size) {
+
+				/* the DB is small enough to fit in cache,
+				   so compacting it is a cheap operation. 
+				   Berkeley DB only fills up about 75% of
+				   disk pages, so we save space and improve
+				   access times by compacting */ 
+				   
+				status = reldb->compact(reldb, NULL, NULL, 
+							NULL, NULL, 
+							DB_FREE_SPACE, NULL);
+				if (status != 0) {
+					logprintf(obj, "DB compact failed: %s\n",
+							db_strerror(status));
+					exit(-1);
+				}
+
 				status = reldb->close(reldb, 0);
 				if (status != 0) {
 					logprintf(obj, "DB close failed: %s\n",
@@ -677,14 +734,23 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
 		logprintf(obj, "DB bulk write failed: %s\n",
-						db_strerror(status));
+				db_strerror(status));
+		exit(-1);
+	}
+
+	status = reldb->compact(reldb, NULL, NULL, 
+				NULL, NULL, 
+				DB_FREE_SPACE, NULL);
+	if (status != 0) {
+		logprintf(obj, "DB compact failed: %s\n",
+				db_strerror(status));
 		exit(-1);
 	}
 
 	status = reldb->close(reldb, 0);
 	if (status != 0) {
 		logprintf(obj, "DB close failed: %s\n",
-						db_strerror(status));
+				db_strerror(status));
 		exit(-1);
 	}
 
@@ -699,45 +765,18 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				num_skipped_b);
 	logprintf(obj, "found %" PRIu64 " relations\n", num_relations);
 
+	/* pass 2: merge the temporary DBs into a single output one */
+
 	bound = merge_relation_files(obj, filter_env, 
-				&store_buf, num_db, num_relations_out);
+				&store_buf, num_db, 
+				num_relations_out);
 	free(store_buf.data);
 	free_filter_env(obj, filter_env);
 	return bound;
 }
 
 #if 0
-//	reldb->stat_print(reldb, DB_STAT_ALL);
-
-	sprintf(buf, "%s.db", savefile->name);
-	printf("file size %" PRIu64 "\n", get_file_size(buf));
-
-	reldb = init_relation_db(obj, buf, 0);
-	if (reldb == NULL) {
-		printf("error opening relation DB\n");
-		exit(-1);
-	}
-
-	printf("compacting DB...\n");
-
-	reldb->compact(reldb, NULL, NULL, NULL, 
-			NULL, DB_FREE_SPACE, NULL);
-	if (status != 0) {
-		logprintf(obj, "DB compact failed: %s\n",
-						db_strerror(status));
-		exit(-1);
-	}
-
 	reldb->stat_print(reldb, DB_STAT_ALL);
-
-	status = reldb->close(reldb, 0);
-	if (status != 0) {
-		logprintf(obj, "DB close failed: %s\n",
-						db_strerror(status));
-		exit(-1);
-	}
-
-	printf("file size %" PRIu64 "\n", get_file_size(buf));
 #endif
 
 #if 0
