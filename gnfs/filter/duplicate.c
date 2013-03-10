@@ -294,7 +294,8 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 /*--------------------------------------------------------------------*/
 static uint32
 merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
-			uint32 num_db, uint64 *num_relations_out)
+			DBT *store_buf, uint32 num_db, 
+			uint64 *num_relations_out)
 {
 	uint32 i, j;
 	int32 status;
@@ -302,16 +303,17 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	uint64 num_relations;
 	uint64 num_duplicates;
 	DB *write_db;
-	DBC *write_curs;
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
 	uint8 last_key[KEY_SIZE] = {0};
+	void *store_ptr;
 
 	uint32 *prime_bins;
 	double bin_max;
 
 	logprintf(obj, "commencing duplicate removal, pass 2\n");
-	logprintf(obj, "merging %u temporary DB files\n", num_db);
+	if (num_db > 1)
+		logprintf(obj, "merging %u temporary DB files\n", num_db);
 
 	tmp_db = (tmp_db_t *)xcalloc(num_db, sizeof(tmp_db_t));
 	tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
@@ -322,14 +324,6 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	write_db = init_relation_db(obj, filter_env, "relations.db", DB_CREATE);
 	if (write_db == NULL) {
 		printf("error opening output relation DB\n");
-		exit(-1);
-	}
-
-	status = write_db->cursor(write_db, NULL, &write_curs, 
-				DB_CURSOR_BULK | DB_WRITECURSOR);
-	if (status != 0) {
-		logprintf(obj, "write cursor open failed: %s\n",
-					db_strerror(status));
 		exit(-1);
 	}
 
@@ -382,6 +376,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	i = 0;
 	num_relations = 0;
 	num_duplicates = 0;
+	DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
 	while (i < j) {
 
 		tmp_db_t *t = tmp_db_ptr[i];
@@ -391,14 +386,28 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			num_duplicates++;
 		}
 		else {
-			status = write_curs->put(write_curs, 
-						&t->curr_key, 
-						&t->curr_data, 
-						DB_KEYFIRST);
-			if (status != 0) {
-				logprintf(obj, "write cursor failed: %s\n",
+			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
+					t->curr_key.data, t->curr_key.size,
+					t->curr_data.data, t->curr_data.size);
+
+			if (store_ptr == NULL) {
+
+				/* relation doesn't fit, commit the batch and
+				   start the next */
+
+				status = write_db->put(write_db, NULL, store_buf,
+						NULL, DB_MULTIPLE_KEY);
+				if (status != 0) {
+					logprintf(obj, "DB bulk write failed: %s\n",
 							db_strerror(status));
-				exit(-1);
+					exit(-1);
+				}
+
+				DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
+
+				DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
+						t->curr_key.data, t->curr_key.size,
+						t->curr_data.data, t->curr_data.size);
 			}
 			memcpy(last_key, t->curr_key.data, KEY_SIZE);
 		}
@@ -406,15 +415,22 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		status = t->read_curs->get(t->read_curs, 
 					&t->curr_key, 
 					&t->curr_data, DB_NEXT);
-		if (status == 0)
-			heapify(tmp_db_ptr + i, 0, j-i);
-		else
+		if (status != 0)
 			i++;
+		else
+			heapify(tmp_db_ptr + i, 0, j-i);
+	}
+
+	status = write_db->put(write_db, NULL, store_buf,
+				NULL, DB_MULTIPLE_KEY);
+	if (status != 0) {
+		logprintf(obj, "DB bulk write failed: %s\n",
+				db_strerror(status));
+		exit(-1);
 	}
 
 	/* close DBs; delete the input ones */
 
-	write_curs->close(write_curs);
 	write_db->close(write_db, 0);
 
 	for (i = 0; i < num_db; i++) {
@@ -456,9 +472,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			break;
 		bin_max = bin_min;
 	}
-
-	free(prime_bins);
 #endif
+	free(prime_bins);
+
 	*num_relations_out = num_relations;
 	return BIN_SIZE * (i + 0.5);
 }
@@ -674,7 +690,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	/* free pass 1 stuff */
 
-	free(store_buf.data);
 	mpz_clear(scratch);
 	savefile_close(savefile);
 
@@ -685,7 +700,8 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	logprintf(obj, "found %" PRIu64 " relations\n", num_relations);
 
 	bound = merge_relation_files(obj, filter_env, 
-				num_db, num_relations_out);
+				&store_buf, num_db, num_relations_out);
+	free(store_buf.data);
 	free_filter_env(obj, filter_env);
 	return bound;
 }
