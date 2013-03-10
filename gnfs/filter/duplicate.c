@@ -23,6 +23,9 @@ $Id$
 typedef struct {
 	DB *read_db;
 	DBC *read_curs;
+	void *read_ptr;
+	DBT read_key;
+	DBT read_data;
 	DBT curr_key;
 	DBT curr_data;
 } tmp_db_t;
@@ -177,6 +180,16 @@ static DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 		goto error_finished;
 	}
 
+	/* do not cache databases in disk cache and also in
+	   Berkeley DB's memory cache */
+
+	status = env->set_flags(env, DB_DIRECT_DB, 1);
+	if (status != 0) {
+		logprintf(obj, "DB_ENV set_flags failed: %s\n",
+				db_strerror(status));
+		goto error_finished;
+	}
+
 	return env;
 
 error_finished:
@@ -231,6 +244,17 @@ static DB * init_relation_db(msieve_obj *obj,
 		logprintf(obj, "DB set compress fcn failed: %s\n",
 				db_strerror(status));
 		goto error_finished;
+	}
+
+	/* assume DB_CREATE means the DB should be truncated */
+	if (open_flags & DB_CREATE) {
+		status = filter_env->dbremove(filter_env, 
+					NULL, name, NULL, 0);
+		if (status != 0 && status != ENOENT) {
+			logprintf(obj, "DB delete failed: %s\n",
+					db_strerror(status));
+			goto error_finished;
+		}
 	}
 
 	status = reldb->open(reldb, NULL, name, NULL, DB_BTREE, 
@@ -352,6 +376,10 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 						db_strerror(status));
 			exit(-1);
 		}
+
+		t->read_data.ulen = 2*1048576;
+		t->read_data.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+		t->read_data.data = xmalloc(2*1048576);
 	}
 
 	/* do the initial read from each DB. Squeeze out any
@@ -362,10 +390,18 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		tmp_db_t *t = tmp_db + i;
 
 		status = t->read_curs->get(t->read_curs, 
-					&t->curr_key, 
-					&t->curr_data, DB_NEXT);
-		if (status == 0)
+					&t->read_key, 
+					&t->read_data, 
+					DB_NEXT | DB_MULTIPLE_KEY);
+		if (status == 0) {
+			DB_MULTIPLE_INIT(t->read_ptr, &t->read_data);
+			DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
+					t->curr_key.data,
+					t->curr_key.size,
+					t->curr_data.data,
+					t->curr_data.size);
 			tmp_db_ptr[j++] = t;
+		}
 	}
 
 	if (j > 1)
@@ -411,10 +447,12 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 				/* relation doesn't fit, commit the batch and
 				   start the next */
 
-				status = write_db->put(write_db, NULL, store_buf,
-						NULL, DB_MULTIPLE_KEY);
+				status = write_db->put(write_db, NULL, 
+							store_buf, NULL, 
+							DB_MULTIPLE_KEY);
 				if (status != 0) {
-					logprintf(obj, "DB bulk write failed: %s\n",
+					logprintf(obj, "DB bulk write "
+							"failed: %s\n",
 							db_strerror(status));
 					exit(-1);
 				}
@@ -424,9 +462,10 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 				memcpy(end_buf, t->curr_key.data, KEY_SIZE);
 				status = write_db->compact(write_db, NULL,
-						&start_key, &end_key, NULL, 0, NULL);
+						&start_key, &end_key, NULL, 
+						0, NULL);
 				if (status != 0) {
-					logprintf(obj, "DB compact failed: %s\n",
+					logprintf(obj, "compact failed: %s\n",
 							db_strerror(status));
 					exit(-1);
 				}
@@ -435,23 +474,47 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 				DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
 
 				DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
-						t->curr_key.data, t->curr_key.size,
-						t->curr_data.data, t->curr_data.size);
+							t->curr_key.data, 
+							t->curr_key.size,
+							t->curr_data.data, 
+							t->curr_data.size);
 			}
 			memcpy(prev_key, t->curr_key.data, KEY_SIZE);
 		}
 
-		status = t->read_curs->get(t->read_curs, 
-					&t->curr_key, 
-					&t->curr_data, DB_NEXT);
-		if (status != 0)
-			i++;
-		else
+		DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
+					t->curr_key.data,
+					t->curr_key.size,
+					t->curr_data.data,
+					t->curr_data.size);
+
+		if (t->read_ptr == NULL) {
+
+			status = t->read_curs->get(t->read_curs, 
+					&t->read_key, 
+					&t->read_data, 
+					DB_NEXT | DB_MULTIPLE_KEY);
+			if (status != 0) {
+				i++;
+			}
+			else {
+				DB_MULTIPLE_INIT(t->read_ptr, 
+						&t->read_data);
+				DB_MULTIPLE_KEY_NEXT(t->read_ptr, 
+						&t->read_data,
+						t->curr_key.data,
+						t->curr_key.size,
+						t->curr_data.data,
+						t->curr_data.size);
+				heapify(tmp_db_ptr + i, 0, j-i);
+			}
+		}
+		else {
 			heapify(tmp_db_ptr + i, 0, j-i);
+		}
 	}
 
-	/* commit and compact the last batch; we make
-	   an ending key of 'all bits set' */
+	/* commit and compact the last batch */
 
 	status = write_db->put(write_db, NULL, store_buf,
 				NULL, DB_MULTIPLE_KEY);
@@ -461,9 +524,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		exit(-1);
 	}
 
-	memset(end_buf, 0xff, KEY_SIZE);
 	status = write_db->compact(write_db, NULL,
-			&start_key, &end_key, NULL, 0, NULL);
+			&start_key, NULL, NULL, 
+			DB_FREE_SPACE, NULL);
 	if (status != 0) {
 		logprintf(obj, "DB compact failed: %s\n",
 				db_strerror(status));
@@ -477,6 +540,8 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	for (i = 0; i < num_db; i++) {
 
 		tmp_db_t *t = tmp_db + i;
+
+		free(t->read_data.data);
 
 		t->read_curs->close(t->read_curs);
 		t->read_db->close(t->read_db, 0);
@@ -680,12 +745,12 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				   Berkeley DB only fills up about 75% of
 				   disk pages, so we save space and improve
 				   access times by compacting */ 
-				   
+
 				status = reldb->compact(reldb, NULL, NULL, 
 							NULL, NULL, 
 							DB_FREE_SPACE, NULL);
 				if (status != 0) {
-					logprintf(obj, "DB compact failed: %s\n",
+					logprintf(obj, "compact failed: %s\n",
 							db_strerror(status));
 					exit(-1);
 				}
