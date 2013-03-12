@@ -18,8 +18,6 @@ $Id$
 #define BIN_SIZE (1 << (LOG2_BIN_SIZE))
 #define TARGET_HITS_PER_PRIME 40.0
 
-#define KEY_SIZE (sizeof(int64) + sizeof(uint32))
-
 typedef struct {
 	DB *read_db;
 	DBC *read_curs;
@@ -30,250 +28,7 @@ typedef struct {
 	DBT curr_data;
 } tmp_db_t;
 
-/*--------------------------------------------------------------------*/
-static int compare_relations(DB *db, const DBT *rel1,
-				const DBT *rel2)
-{
-	int64 a1, a2;
-	uint32 b1, b2;
-
-	memcpy(&a1, rel1->data, sizeof(int64));
-	memcpy(&b1, (uint8 *)rel1->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, rel2->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)rel2->data + sizeof(int64), sizeof(uint32));
-
-	if (b1 > b2)
-		return 1;
-	if (b1 < b2)
-		return -1;
-
-	if (a1 > a2)
-		return 1;
-	if (a1 < a2)
-		return -1;
-
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int compress_relation(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest)
-{
-	int64 a2;
-	uint32 b1, b2;
-	uint32 count = 0;
-	uint8 a_neg = 0;
-	uint8 b_diff_zero = 0;
-	uint8 tmp[24];
-
-	memcpy(&b1, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, key->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)key->data + sizeof(int64), sizeof(uint32));
-
-	if (a2 < 0) {
-		a_neg = 2;
-		a2 = -a2;
-	}
-	if (b1 == b2)
-		b_diff_zero = 1;
-
-	count = compress_p(tmp, 
-			a2 << 2 | a_neg | b_diff_zero, 
-			count);
-
-	if (!b_diff_zero)
-		count = compress_p(tmp, b2 - b1, count);
-
-	/* the BDB docs only show this in an example and not in the
-	   API reference, but the compressed buffer is going to have 
-	   several key/data pairs concatenated, and the decompression
-	   routine has to have each relation know how large its 
-	   compressed version is because it cannot blindly use the
-	   size of the compressed buffer */
-
-	count = compress_p(tmp, data->size, count);
-
-	dest->size = count + data->size;
-	if (dest->ulen < dest->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(dest->data, tmp, count);
-	memcpy((uint8 *)dest->data + count, data->data, data->size);
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int decompress_relation(DB *db, 
-		const DBT *prev_key, const DBT *prev_data, 
-		DBT *compressed, 
-		DBT *key, DBT *data)
-
-{
-	uint64 a2;
-	uint32 b1, b2;
-	uint32 b_diff_zero;
-	uint32 a_neg;
-	uint32 count = 0;
-	uint32 data_size;
-
-	a2 = decompress_p((uint8 *)compressed->data, &count);
-	a_neg = a2 & 2;
-	b_diff_zero = a2 & 1;
-	a2 >>= 2;
-	if (a_neg)
-		a2 = -a2;
-
-	memcpy(&b2, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
-	if (!b_diff_zero)
-		b2 += (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	key->size = KEY_SIZE;
-	data->size = data_size;
-	if (key->ulen < key->size || data->ulen < data->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
-	memcpy(key->data, &a2, sizeof(uint64));
-	memcpy((uint8 *)key->data + sizeof(uint64), &b2, sizeof(uint32));
-
-	/* the BDB docs only show this in an example and not in the
-	   API reference, but the compressed buffer needs to know
-	   how many bytes the current relation needed */
-
-	compressed->size = count + data_size;
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
-				uint64 cache_size)
-{
-	DB_ENV * env = NULL;
-	int32 status;
-
-	status = db_env_create(&env, 0);
-	if (status != 0) {
-		logprintf(obj, "DB_ENV creation failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	status = env->set_cachesize(env, 
-				(uint32)(cache_size >> 32), 
-				(uint32)cache_size, 0);
-	if (status != 0) {
-		logprintf(obj, "DB_ENV set cache failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	status = env->open(env, dirname, 
-			DB_CREATE | DB_INIT_CDB | 
-			DB_INIT_MPOOL | DB_PRIVATE, 0);
-	if (status != 0) {
-		logprintf(obj, "DB_ENV open failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	/* do not cache databases in disk cache and also in
-	   Berkeley DB's memory cache */
-
-	status = env->set_flags(env, DB_DIRECT_DB, 1);
-	if (status != 0) {
-		logprintf(obj, "DB_ENV set_flags failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	return env;
-
-error_finished:
-	if (env)
-		env->close(env, 0);
-	return NULL;
-}
-
-/*--------------------------------------------------------------------*/
-static void free_filter_env(msieve_obj *obj, DB_ENV *env)
-{
-	int32 status;
-
-	status = env->memp_sync(env, NULL); 
-	if (status != 0) {
-		logprintf(obj, "DB_ENV sync failed: %s\n",
-				db_strerror(status));
-	}
-
-	status = env->close(env, 0);
-	if (status != 0) {
-		logprintf(obj, "DB_ENV close failed: %s\n",
-				db_strerror(status));
-	}
-}
-
-/*--------------------------------------------------------------------*/
-static DB * init_relation_db(msieve_obj *obj, 
-				DB_ENV *filter_env, char *name,
-				uint32 open_flags)
-{
-	DB * reldb = NULL;
-	int32 status;
-
-	status = db_create(&reldb, filter_env, 0);
-	if (status != 0) {
-		logprintf(obj, "DB creation failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	status = reldb->set_bt_compare(reldb, compare_relations);
-	if (status != 0) {
-		logprintf(obj, "DB set compare fcn failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	status = reldb->set_bt_compress(reldb, compress_relation,
-				decompress_relation);
-	if (status != 0) {
-		logprintf(obj, "DB set compress fcn failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	/* assume DB_CREATE means the DB should be truncated */
-	if (open_flags & DB_CREATE) {
-		status = filter_env->dbremove(filter_env, 
-					NULL, name, NULL, 0);
-		if (status != 0 && status != ENOENT) {
-			logprintf(obj, "DB delete failed: %s\n",
-					db_strerror(status));
-			goto error_finished;
-		}
-	}
-
-	status = reldb->open(reldb, NULL, name, NULL, DB_BTREE, 
-				open_flags, 
-				(open_flags & DB_RDONLY) ? 0444 : 0664);
-	if (status != 0) {
-		logprintf(obj, "DB open failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
-	}
-
-	return reldb;
-
-error_finished:
-	if (reldb)
-		reldb->close(reldb, 0);
-	return NULL;
-}
-
+#define BULK_BUF_ROUND(x) ((x) & ~(1024 - 1))
 
 /*--------------------------------------------------------------------*/
 /* boilerplate code for managing a heap of relations */
@@ -318,7 +73,7 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 /*--------------------------------------------------------------------*/
 static uint32
 merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
-			DBT *store_buf, uint32 num_db, 
+			size_t batch_size, uint32 num_db, 
 			uint64 *num_relations_out)
 {
 	uint32 i, j;
@@ -330,6 +85,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
 	void *store_ptr;
+	DBT store_buf;
+	size_t read_batch_size;
+	size_t write_batch_size;
 
 	DBT start_key, end_key;
 	uint8 prev_key[KEY_SIZE] = {0};
@@ -348,8 +106,22 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
 					sizeof(uint32));
 
+	/* allocate 60% of the available memory for write
+	   buffers, with the remainder split evenly across all the
+	   temporary DBs for read buffers */
+
+	write_batch_size = 0.6 * batch_size;
+	read_batch_size = (batch_size - write_batch_size) / num_db;
+	read_batch_size = MAX(read_batch_size, 1048576);
+
 	/* open the destination DB */
+
+	memset(&store_buf, 0, sizeof(DBT));
+	store_buf.ulen = BULK_BUF_ROUND(write_batch_size);
+	store_buf.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+	store_buf.data = xmalloc(store_buf.ulen);
 	write_db = init_relation_db(obj, filter_env, "relations.db", DB_CREATE);
+
 	if (write_db == NULL) {
 		printf("error opening output relation DB\n");
 		exit(-1);
@@ -377,9 +149,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			exit(-1);
 		}
 
-		t->read_data.ulen = 2*1048576;
+		t->read_data.ulen = BULK_BUF_ROUND(read_batch_size);
 		t->read_data.flags = DB_DBT_USERMEM | DB_DBT_BULK;
-		t->read_data.data = xmalloc(2*1048576);
+		t->read_data.data = xmalloc(t->read_data.ulen);
 	}
 
 	/* do the initial read from each DB. Squeeze out any
@@ -428,7 +200,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	i = 0;
 	num_relations = 0;
 	num_duplicates = 0;
-	DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
+	DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 	while (i < j) {
 
 		tmp_db_t *t = tmp_db_ptr[i];
@@ -438,7 +210,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		}
 		else {
 			num_relations++;
-			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
+			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, &store_buf,
 					t->curr_key.data, t->curr_key.size,
 					t->curr_data.data, t->curr_data.size);
 
@@ -448,7 +220,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 				   start the next */
 
 				status = write_db->put(write_db, NULL, 
-							store_buf, NULL, 
+							&store_buf, NULL, 
 							DB_MULTIPLE_KEY);
 				if (status != 0) {
 					logprintf(obj, "DB bulk write "
@@ -471,9 +243,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 				}
 				memcpy(start_buf, t->curr_key.data, KEY_SIZE);
 
-				DB_MULTIPLE_WRITE_INIT(store_ptr, store_buf);
+				DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 
-				DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, store_buf,
+				DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, &store_buf,
 							t->curr_key.data, 
 							t->curr_key.size,
 							t->curr_data.data, 
@@ -506,17 +278,16 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 						t->curr_key.size,
 						t->curr_data.data,
 						t->curr_data.size);
-				heapify(tmp_db_ptr + i, 0, j-i);
 			}
 		}
-		else {
+
+		if (j - i > 1)
 			heapify(tmp_db_ptr + i, 0, j-i);
-		}
 	}
 
 	/* commit and compact the last batch */
 
-	status = write_db->put(write_db, NULL, store_buf,
+	status = write_db->put(write_db, NULL, &store_buf,
 				NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
 		logprintf(obj, "DB bulk write failed: %s\n",
@@ -551,6 +322,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	}
 	free(tmp_db);
 	free(tmp_db_ptr);
+	free(store_buf.data);
 
 	logprintf(obj, "found %" PRIu64 " duplicates and %"
 			PRIu64 " unique relations\n", 
@@ -587,8 +359,10 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 /*--------------------------------------------------------------------*/
 uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
+				uint64 mem_size,
 				uint64 max_relations, 
-				uint64 *num_relations_out) {
+				uint64 *num_relations_out) 
+{
 
 	int32 status;
 	savefile_t *savefile = &obj->savefile;
@@ -599,8 +373,8 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	mpz_t scratch;
 
 	uint32 bound;
-	uint32 num_db;
-	uint32 batch_size;
+	uint32 num_db = 0;
+	size_t batch_size;
 	uint64 curr_batch_size;
 	uint64 cache_size;
 
@@ -618,13 +392,21 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	savefile_open(savefile, SAVEFILE_READ);
 
+	/* we divide the input memory bound into an allocation for
+	   Berkeley DB, and an allocation for the bulk buffers that
+	   read from and write to it. We split it 90-10, with an 
+	   upper limit of 3GB for the bulk buffers */
+
+	if (0.1 * mem_size > 0xc0000000)
+		batch_size = 0xc0000000;
+	else
+		batch_size = 0.1 * mem_size;
+
+	cache_size = mem_size - batch_size; 
+
 	/* pass 1: break up the input dataset into temporary
 	   databases, each about the size of the DB cache and
 	   each in sorted order */
-
-	num_db = 0;
-	cache_size = (uint64)100*1024*1024;
-	batch_size = 30*1024*1024;
 
 	sprintf(buf, "%s.filter", savefile->name);
 	filter_env = init_filter_env(obj, buf, cache_size);
@@ -641,9 +423,9 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	}
 
 	memset(&store_buf, 0, sizeof(DBT));
-	store_buf.data = xmalloc(batch_size);
-	store_buf.ulen = batch_size;
+	store_buf.ulen = BULK_BUF_ROUND(batch_size);
 	store_buf.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+	store_buf.data = xmalloc(store_buf.ulen);
 	DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 
 	num_relations = 0;
@@ -823,6 +605,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	mpz_clear(scratch);
 	savefile_close(savefile);
+	free(store_buf.data);
 
 	if (num_skipped_b > 0)
 		logprintf(obj, "skipped %" PRIu64 
@@ -833,16 +616,11 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	/* pass 2: merge the temporary DBs into a single output one */
 
 	bound = merge_relation_files(obj, filter_env, 
-				&store_buf, num_db, 
+				batch_size, num_db, 
 				num_relations_out);
-	free(store_buf.data);
 	free_filter_env(obj, filter_env);
 	return bound;
 }
-
-#if 0
-	reldb->stat_print(reldb, DB_STAT_ALL);
-#endif
 
 #if 0
 		/* add the factors of tmp_rel to the counts of (32-bit) primes */

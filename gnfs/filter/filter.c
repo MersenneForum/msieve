@@ -302,8 +302,16 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 		}
 	}
 
-	if (ram_size == 0)
-		ram_size = get_ram_size();
+	if (ram_size == 0) {
+		/* the default memory size is 25% of the RAM size */
+		ram_size = get_ram_size() / 4;
+		if (ram_size == 0) {
+			logprintf(obj, "error: cannot determine memory size\n");
+			exit(-1);
+		}
+	}
+
+	ram_size = MAX(ram_size, 32*1024*1024);
 
 	memset(&filter, 0, sizeof(filter));
 	memset(&merge, 0, sizeof(merge));
@@ -319,7 +327,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 
 	/* delete duplicate relations */
 
-	filtmin_r = filtmin_a = nfs_purge_duplicates(obj, &fb, 
+	filtmin_r = filtmin_a = nfs_purge_duplicates(obj, &fb, ram_size,
 					max_relations, &num_relations);
 	if (filter_bound > 0)
 		filtmin_r = filtmin_a = filter_bound;

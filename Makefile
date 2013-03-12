@@ -185,7 +185,8 @@ NFS_HDR = \
 	gnfs/poly/stage2/stage2.h \
 	gnfs/sieve/sieve.h \
 	gnfs/sqrt/sqrt.h \
-	gnfs/gnfs.h
+	gnfs/gnfs.h \
+	gnfs/relation_db.h
 
 NFS_GPU_HDR = \
 	gnfs/poly/stage1/stage1_core_gpu/stage1_core.cu \
@@ -226,7 +227,8 @@ NFS_SRCS = \
 	gnfs/ffpoly.c \
 	gnfs/gf2.c \
 	gnfs/gnfs.c \
-	gnfs/relation.c
+	gnfs/relation.c \
+	gnfs/relation_db.c
 
 NFS_OBJS = $(NFS_SRCS:.c=.no)
 
