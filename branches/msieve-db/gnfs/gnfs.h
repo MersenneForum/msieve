@@ -21,7 +21,7 @@ $Id$
 /* include basic stuff */
 
 #include <common.h>
-#include <db.h>
+#include "relation_db.h"
 
 #ifdef __cplusplus
 extern "C" {
