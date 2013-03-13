@@ -219,7 +219,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 							&store_buf, NULL, 
 							DB_MULTIPLE_KEY);
 				if (status != 0) {
-					logprintf(obj, "DB bulk write "
+					logprintf(obj, "DB bulk write 1 "
 							"failed: %s\n",
 							db_strerror(status));
 					exit(-1);
@@ -233,7 +233,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 						&start_key, &end_key, NULL, 
 						0, NULL);
 				if (status != 0) {
-					logprintf(obj, "compact failed: %s\n",
+					logprintf(obj, "compact 1 failed: %s\n",
 							db_strerror(status));
 					exit(-1);
 				}
@@ -286,7 +286,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	status = write_db->put(write_db, NULL, &store_buf,
 				NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
-		logprintf(obj, "DB bulk write failed: %s\n",
+		logprintf(obj, "DB bulk write 2 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
@@ -295,7 +295,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			&start_key, NULL, NULL, 
 			DB_FREE_SPACE, NULL);
 	if (status != 0) {
-		logprintf(obj, "DB compact failed: %s\n",
+		logprintf(obj, "DB compact 2 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
@@ -493,7 +493,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 			status = reldb->sort_multiple(reldb, &store_buf,
 					NULL, DB_MULTIPLE_KEY);
 			if (status != 0) {
-				logprintf(obj, "DB bulk sort failed: %s\n",
+				logprintf(obj, "DB bulk sort 3 failed: %s\n",
 						db_strerror(status));
 				exit(-1);
 			}
@@ -501,7 +501,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 			status = reldb->put(reldb, NULL, &store_buf,
 					NULL, DB_MULTIPLE_KEY);
 			if (status != 0) {
-				logprintf(obj, "DB bulk write failed: %s\n",
+				logprintf(obj, "DB bulk write 3 failed: %s\n",
 						db_strerror(status));
 				exit(-1);
 			}
@@ -529,7 +529,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 							NULL, NULL, 
 							DB_FREE_SPACE, NULL);
 				if (status != 0) {
-					logprintf(obj, "compact failed: %s\n",
+					logprintf(obj, "compact 3 failed: %s\n",
 							db_strerror(status));
 					exit(-1);
 				}
@@ -569,7 +569,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	status = reldb->sort_multiple(reldb, &store_buf,
 			NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
-		logprintf(obj, "DB bulk sort failed: %s\n",
+		logprintf(obj, "DB bulk sort 4 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
@@ -577,7 +577,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	status = reldb->put(reldb, NULL, &store_buf,
 				NULL, DB_MULTIPLE_KEY);
 	if (status != 0) {
-		logprintf(obj, "DB bulk write failed: %s\n",
+		logprintf(obj, "DB bulk write 4 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
@@ -586,14 +586,14 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				NULL, NULL, 
 				DB_FREE_SPACE, NULL);
 	if (status != 0) {
-		logprintf(obj, "DB compact failed: %s\n",
+		logprintf(obj, "DB compact 4 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}
 
 	status = reldb->close(reldb, 0);
 	if (status != 0) {
-		logprintf(obj, "DB close failed: %s\n",
+		logprintf(obj, "DB close 4 failed: %s\n",
 				db_strerror(status));
 		exit(-1);
 	}

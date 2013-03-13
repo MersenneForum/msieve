@@ -159,7 +159,7 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 	/* pre-emptively make the environment directory; the open 
 	   call will not fail if it doesn't exist */
 
-	mkdir(dirname, 0777);
+	mkdir(dirname, 0755);
 	status = env->open(env, dirname, flags, 0);
 	if (status != 0) {
 		logprintf(obj, "DB_ENV open failed: %s\n",
