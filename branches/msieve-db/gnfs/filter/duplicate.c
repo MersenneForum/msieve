@@ -74,13 +74,13 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 static uint32
 merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 			size_t batch_size, uint32 num_db, 
+			uint64 num_relations_in,
 			uint64 *num_relations_out)
 {
 	uint32 i, j;
 	int32 status;
 	char buf[LINE_BUF_SIZE];
 	uint64 num_relations;
-	uint64 num_duplicates;
 	DB *write_db;
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
@@ -199,16 +199,12 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 	i = 0;
 	num_relations = 0;
-	num_duplicates = 0;
 	DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 	while (i < j) {
 
 		tmp_db_t *t = tmp_db_ptr[i];
 
-		if (memcmp(t->curr_key.data, prev_key, KEY_SIZE) == 0) {
-			num_duplicates++;
-		}
-		else {
+		if (memcmp(t->curr_key.data, prev_key, KEY_SIZE) != 0) {
 			num_relations++;
 			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, &store_buf,
 					t->curr_key.data, t->curr_key.size,
@@ -324,9 +320,10 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	free(tmp_db_ptr);
 	free(store_buf.data);
 
-	logprintf(obj, "found %" PRIu64 " duplicates and %"
+	logprintf(obj, "wrote %" PRIu64 " duplicates and %"
 			PRIu64 " unique relations\n", 
-			num_duplicates, num_relations);
+			num_relations_in - num_relations, 
+			num_relations);
 #if 0
 	/* the large prime cutoff for the rest of the filtering
 	   process should be chosen here. We don't want the bound
@@ -617,6 +614,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	bound = merge_relation_files(obj, filter_env, 
 				batch_size, num_db, 
+				num_relations,
 				num_relations_out);
 	free_filter_env(obj, filter_env);
 	return bound;
