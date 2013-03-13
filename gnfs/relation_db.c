@@ -138,6 +138,7 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 {
 	DB_ENV * env = NULL;
 	int32 status;
+	uint32 flags = DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE;
 
 	status = db_env_create(&env, 0);
 	if (status != 0) {
@@ -155,9 +156,11 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 		goto error_finished;
 	}
 
-	status = env->open(env, dirname, 
-			DB_CREATE | DB_INIT_CDB | 
-			DB_INIT_MPOOL | DB_PRIVATE, 0);
+	/* pre-emptively make the environment directory; the open 
+	   call will not fail if it doesn't exist */
+
+	mkdir(dirname, 0777);
+	status = env->open(env, dirname, flags, 0);
 	if (status != 0) {
 		logprintf(obj, "DB_ENV open failed: %s\n",
 				db_strerror(status));
