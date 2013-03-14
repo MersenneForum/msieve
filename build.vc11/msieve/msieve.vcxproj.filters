@@ -23,4 +23,7 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\..\bdb\db-5.3.21\build_windows\x64\Release\libdb53.lib" />
+  </ItemGroup>
 </Project>
