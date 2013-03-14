@@ -123,6 +123,9 @@
       <Filter>Source Files\poly\Stage1</Filter>
     </ClCompile>
     <ClCompile Include="..\..\gnfs\poly\poly_param.c">
+      <Filter>Source Files\poly</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\gnfs\relation_db.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -185,6 +188,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\util.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\gnfs\relation_db.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
