@@ -355,6 +355,42 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 }
 
 /*--------------------------------------------------------------------*/
+static uint32 db_fills_cache(DB_ENV *env, char *db_name)
+{
+	uint32 i = 0;
+	uint32 evicted = 0;
+	DB_MPOOL_FSTAT **fstats = NULL;
+
+	/* a DB is considered to have filled up the cache when
+	   some of its pages have been evicted. This is actually
+	   somewhat convoluted to determine, because the cache
+	   can still be full of dirty pages from other databases,
+	   which are being evicted continuously */
+
+	if (env->memp_stat(env, NULL, &fstats, 0) != 0)
+		return 0;
+
+	if (fstats != NULL) {
+
+		while (1) {
+			DB_MPOOL_FSTAT *f = fstats[i++];
+
+			if (f == NULL)
+				break;
+
+			if (strcmp(f->file_name, db_name) == 0) {
+				evicted = f->st_page_out;
+				break;
+			}
+		}
+
+		free(fstats);
+	}
+
+	return (evicted > 2000);
+}
+
+/*--------------------------------------------------------------------*/
 uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				uint64 mem_size,
 				uint64 max_relations, 
@@ -364,6 +400,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	int32 status;
 	savefile_t *savefile = &obj->savefile;
 	char buf[LINE_BUF_SIZE];
+	char db_name[24];
 	uint64 curr_relation;
 	uint64 num_relations;
 	uint64 num_skipped_b;
@@ -372,7 +409,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	uint32 bound;
 	uint32 num_db = 0;
 	size_t batch_size;
-	uint64 curr_batch_size;
 	uint64 cache_size;
 
 	uint8 tmp_factors[COMPRESSED_P_MAX_SIZE];
@@ -412,8 +448,8 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 		exit(-1);
 	}
 
-	sprintf(buf, "tmpdb.%u", num_db++);
-	reldb = init_relation_db(obj, filter_env, buf, DB_CREATE);
+	sprintf(db_name, "tmpdb.%u", num_db++);
+	reldb = init_relation_db(obj, filter_env, db_name, DB_CREATE);
 	if (reldb == NULL) {
 		printf("error opening relation DB\n");
 		exit(-1);
@@ -428,7 +464,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	num_relations = 0;
 	curr_relation = 0;
 	num_skipped_b = 0;
-	curr_batch_size = 0;
 	mpz_init(scratch);
 	savefile_read_line(buf, sizeof(buf), savefile);
 
@@ -512,12 +547,10 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 					rel_key, KEY_SIZE,
 					rel_data, array_size + 2);
 
-			/* if the number of committed relations threatens
-			   to overflow the cache, flush the DB to disk
-			   and start another */
+			/* if the number of committed relations overflows
+			    the cache, flush the DB to disk and start another */
 
-			curr_batch_size += batch_size;
-			if (curr_batch_size > cache_size) {
+			if (db_fills_cache(filter_env, db_name)) {
 
 				/* the DB is small enough to fit in cache,
 				   so compacting it is a cheap operation. 
@@ -541,15 +574,14 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 					exit(-1);
 				}
 
-				sprintf(buf, "tmpdb.%u", num_db++);
+				sprintf(db_name, "tmpdb.%u", num_db++);
 
 				reldb = init_relation_db(obj, filter_env, 
-							buf, DB_CREATE);
+							db_name, DB_CREATE);
 				if (reldb == NULL) {
 					printf("error opening relation DB\n");
 					exit(-1);
 				}
-				curr_batch_size = 0;
 			}
 		}
 
