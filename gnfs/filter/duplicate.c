@@ -506,14 +506,14 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 			continue;
 		}
 
-		num_relations++;
-		if (num_relations % 10000000 == 0) {
+		if (curr_relation % 10000000 == 0) {
 			printf("read %" PRIu64 "M relations\n", 
 					curr_relation / 1000000);
 		}
 
 		/* relation is good; queue for DB write */
 
+		num_relations++;
 		DB_MULTIPLE_KEY_RESERVE_NEXT(store_ptr, &store_buf,
 				rel_key, KEY_SIZE,
 				rel_data, array_size + 2);
