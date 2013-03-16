@@ -157,6 +157,30 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 		goto error_finished;
 	}
 
+#if defined(WIN32) || defined(_WIN64)
+	status = env->set_flags(env, DB_DIRECT_DB, 1);
+	if (status == 0) {
+		logprintf(obj, "can't do direct IO, try building BDB with "
+			"--enable-direct_io\n");
+	}
+#elif defined(__linux__)
+	/* Berkeley DB manages disk data in its own cache, and reads
+	   and writes also go through the filesystem cache. On linux this 
+	   means that by default, grinding through reading or writing a
+	   large dataset will kick everything on your computer out of 
+	   memory. The best way to stop this is not to store everything
+	   in memory twice, which means using direct IO.
+	   
+	   Berkeley DB will not use direct IO in linux, because memory
+	   buffers have to be aligned to a large boundary, which BDB
+	   does not want to figure out on the fly. Making direct
+	   IO work better in linux will never happen because it is
+	   insufficiently aesthetically pleasing to Linus Torvalds. In
+	   the meantime, the following is the least bad solution */
+
+	logprintf(obj, "Make sure to do 'echo 0 > /proc/sys/vm/swappiness'\n");
+#endif
+
 	/* pre-emptively make the environment directory; the open 
 	   call will not fail if it doesn't exist */
 
@@ -171,8 +195,6 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 	/* do not cache databases in disk cache and also in
 	   Berkeley DB's memory cache. Continue if the call
 	   fails, not all OSes support it */
-
-	env->set_flags(env, DB_DIRECT_DB, 1);
 
 	return env;
 
