@@ -261,73 +261,39 @@ uint32 find_large_ideals(relation_t *rel,
 	uint32 i;
 	uint32 num_ideals = 0;
 	uint32 array_size = 0;
-	uint32 num_factors_r;
+	uint32 num_factors;
 	int64 a = rel->a;
 	uint32 b = rel->b;
+	uint64 p;
+	uint64 next_p;
 
 	out->gf2_factors = 0;
 
-	/* handle free relations */
-
-	if (b == 0) {
-		uint64 p = decompress_p(rel->factors, &array_size);
-		uint64 compressed_p = (p - 1) / 2;
-
-		if (p > filtmin_r) {
-			ideal_t *ideal = out->ideal_list + num_ideals;
-
-			ideal->p_lo = (uint32)compressed_p;
-			ideal->p_hi = (uint16)(compressed_p >> 32);
-			ideal->rat_or_alg = RATIONAL_IDEAL;
-			ideal->r_lo = (uint32)p;
-			ideal->r_hi = (uint16)(p >> 32);
-			num_ideals++;
-		}
-		else if (p > MAX_PACKED_PRIME) {
-			out->gf2_factors++;
-		}
-
-		if (p > filtmin_a) {
-			for (i = 0; i < rel->num_factors_a; i++) {
-				ideal_t *ideal = out->ideal_list + 
-							num_ideals + i;
-				uint64 root = decompress_p(rel->factors,
-							&array_size);
-
-				ideal->p_lo = (uint32)compressed_p;
-				ideal->p_hi = (uint16)(compressed_p >> 32);
-				ideal->rat_or_alg = ALGEBRAIC_IDEAL;
-				ideal->r_lo = (uint32)root;
-				ideal->r_hi = (uint16)(root >> 32);
-			}
-			num_ideals += rel->num_factors_a;
-		}
-		else if (p > MAX_PACKED_PRIME) {
-			out->gf2_factors += rel->num_factors_a;
-		}
-
-		out->ideal_count = num_ideals;
-		return num_ideals;
-	}
-
 	/* find the large rational ideals */
 
-	num_factors_r = rel->num_factors_r;
+	if ((num_factors = rel->num_factors_r) != 0)
+		p = decompress_p(rel->factors, &array_size);
 
-	for (i = 0; i < num_factors_r; i++) {
-		uint64 p = decompress_p(rel->factors, &array_size);
-		uint64 compressed_p = (p - 1) / 2;
+	for (i = next_p = 0; i < num_factors; p = next_p) {
+		uint32 multiplicity = 1;
+
+		while (++i < num_factors) {
+			next_p = decompress_p(rel->factors, &array_size);
+			if (next_p != p)
+				break;
+			multiplicity++;
+		}
+		if (multiplicity % 2 == 0)
+			continue;
 
 		/* if processing all the ideals, make up a
 		   separate unique entry for rational factors of -1 */
 
 		if (p == 0 && filtmin_r == 0) {
 			ideal_t *ideal = out->ideal_list + num_ideals;
-			ideal->p_lo = (uint32)(-1);
-			ideal->p_hi = 0x7fff;
+			ideal->p = 0;
 			ideal->rat_or_alg = RATIONAL_IDEAL;
-			ideal->r_lo = (uint32)(-1);
-			ideal->r_hi = 0xffff;
+			ideal->r = 3;
 			num_ideals++;
 			continue;
 		}
@@ -343,11 +309,9 @@ uint32 find_large_ideals(relation_t *rel,
 			if (num_ideals >= TEMP_FACTOR_LIST_SIZE)
 				return TEMP_FACTOR_LIST_SIZE + 1;
 
-			ideal->p_lo = (uint32)compressed_p;
-			ideal->p_hi = (uint16)(compressed_p >> 32);
+			ideal->p = (p - 1) / 2;
 			ideal->rat_or_alg = RATIONAL_IDEAL;
-			ideal->r_lo = (uint32)p;
-			ideal->r_hi = (uint16)(p >> 32);
+			ideal->r = p;
 			num_ideals++;
 		}
 		else if (p > MAX_PACKED_PRIME) {
@@ -363,9 +327,20 @@ uint32 find_large_ideals(relation_t *rel,
 
 	/* repeat for the large algebraic ideals */
 
-	for (i = 0; i < (uint32)rel->num_factors_a; i++) {
-		uint64 p = decompress_p(rel->factors, &array_size);
-		uint64 compressed_p = (p - 1) / 2;
+	if ((num_factors = rel->num_factors_a) != 0)
+		p = decompress_p(rel->factors, &array_size);
+
+	for (i = next_p = 0; i < num_factors; p = next_p) {
+		uint32 multiplicity = 1;
+
+		while (++i < num_factors) {
+			next_p = decompress_p(rel->factors, &array_size);
+			if (next_p != p)
+				break;
+			multiplicity++;
+		}
+		if (multiplicity % 2 == 0)
+			continue;
 
 		if (p > filtmin_a) {
 			ideal_t *ideal = out->ideal_list + num_ideals;
@@ -378,8 +353,7 @@ uint32 find_large_ideals(relation_t *rel,
 
 			bmodp = b % p;
 			if (bmodp == 0) {
-				ideal->r_lo = (uint32)p;
-				ideal->r_hi = (uint16)(p >> 32);
+				ideal->r = p;
 			}
 			else {
 				uint64 root;
@@ -397,12 +371,9 @@ uint32 find_large_ideals(relation_t *rel,
 					root = mp_modmul_2(root, 
 						    mp_modinv_2(bmodp, p), p);
 				}
-				ideal->r_lo = (uint32)root;
-				ideal->r_hi = (uint16)(root >> 32);
-
+				ideal->r = root;
 			}
-			ideal->p_lo = (uint32)compressed_p;
-			ideal->p_hi = (uint16)(compressed_p >> 32);
+			ideal->p = (p - 1) / 2;
 			ideal->rat_or_alg = ALGEBRAIC_IDEAL;
 			num_ideals++;
 		}
@@ -416,6 +387,7 @@ uint32 find_large_ideals(relation_t *rel,
 }
 
 /*--------------------------------------------------------------------*/
+#if 0
 static int bsearch_relation(const void *key, const void *rel) {
 	relation_t *r = (relation_t *)rel;
 	uint32 *k = (uint32 *)key;
@@ -701,3 +673,4 @@ void nfs_free_relation_list(relation_t *rlist, uint32 num_relations) {
 		free(rlist[i].factors);
 	free(rlist);
 }
+#endif

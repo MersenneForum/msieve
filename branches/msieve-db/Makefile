@@ -221,11 +221,8 @@ NFS_SRCS = \
 	gnfs/filter/singleton.c \
 	gnfs/sieve/sieve_line.c \
 	gnfs/sieve/sieve_util.c \
-	gnfs/sqrt/sqrt.c \
-	gnfs/sqrt/sqrt_a.c \
 	gnfs/fb.c \
 	gnfs/ffpoly.c \
-	gnfs/gf2.c \
 	gnfs/gnfs.c \
 	gnfs/relation.c \
 	gnfs/relation_db.c

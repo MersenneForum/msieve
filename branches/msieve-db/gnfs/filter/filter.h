@@ -41,9 +41,9 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
    relation numbers to skip; otherwise it contains relation numbers
    to keep */
    
-void nfs_write_lp_file(msieve_obj *obj, factor_base_t *fb,
-			filter_t *filter, uint32 max_relations,
-			uint32 pass);
+void nfs_write_lp_file(msieve_obj *obj, 
+			uint64 mem_size,
+			filter_t *filter);
 
 #ifdef __cplusplus
 }
