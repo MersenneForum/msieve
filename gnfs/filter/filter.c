@@ -28,8 +28,8 @@ static void find_fb_size(factor_base_t *fb,
 	   the filtering bounds */
 
 	if (limit_r > 20000000 && limit_a > 20000000) {
-		*entries_r_out = 1.02 * limit_r / (log((double)limit_r) - 1);
-		*entries_a_out = 1.02 * limit_a / (log((double)limit_a) - 1);
+		*entries_r_out = limit_r / (log((double)limit_r) - 1);
+		*entries_a_out = limit_a / (log((double)limit_a) - 1);
 		return;
 	}
 
@@ -118,23 +118,9 @@ static void dump_relation_numbers(msieve_obj *obj, filter_t *filter) {
 static void set_filtering_bounds(msieve_obj *obj, factor_base_t *fb, 
 			uint32 filtmin_r, uint32 filtmin_a, 
 			uint32 *entries_r_out, uint32 *entries_a_out,
-			uint32 num_relations, uint32 force_small, 
-			filter_t *filter) {
+			uint64 num_relations, filter_t *filter) {
 
 	uint32 entries_r, entries_a;
-
-	if (force_small) {
-		if (num_relations < 2000000)
-			filtmin_r = filtmin_a = 30000;
-		else if (num_relations < 10000000) {
-			filtmin_r = MIN(filtmin_r / 2, 100000);
-			filtmin_a = MIN(filtmin_a / 2, 100000);
-		}
-		else {
-			filtmin_r = MIN(filtmin_r / 2, 720000);
-			filtmin_a = MIN(filtmin_a / 2, 720000);
-		}
-	}
 
 	logprintf(obj, "reading ideals above %u\n", filtmin_r);
 	find_fb_size(fb, filtmin_r, filtmin_a, &entries_r, &entries_a);
@@ -311,7 +297,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 		}
 	}
 
-	ram_size = MAX(ram_size, 32*1024*1024);
+	ram_size = MAX(ram_size, 128*1024*1024);
 
 	memset(&filter, 0, sizeof(filter));
 	memset(&merge, 0, sizeof(merge));
@@ -326,26 +312,26 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 				(double)ram_size / 1048576);
 
 	/* delete duplicate relations */
-
+#if 0
 	filtmin_r = filtmin_a = nfs_purge_duplicates(obj, &fb, ram_size,
 					max_relations, &num_relations);
+#endif
 	if (filter_bound > 0)
 		filtmin_r = filtmin_a = filter_bound;
-#if 0
+
 	/* set up the first disk-based pass; if the dataset is
 	   "small", this will be the only such pass */
 
 	set_filtering_bounds(obj, &fb, filtmin_r, filtmin_a,
 				&entries_r, &entries_a, num_relations, 
-				(uint32)(savefile_size < ram_size / 2), 
 				&filter);
 
 	/* separate out the large ideals and delete singletons
 	   once they are all in memory. If the dataset is large,
 	   first delete most of the singletons from the disk file */
 
-	nfs_write_lp_file(obj, &fb, &filter, max_relations, 0);
-
+	nfs_write_lp_file(obj, ram_size, &filter);
+#if 0
 	if (filter.lp_file_size > ram_size / 2) {
 		filter_purge_lp_singletons(obj, &filter, ram_size);
 #if 0

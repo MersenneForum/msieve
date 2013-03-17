@@ -160,12 +160,13 @@ uint32 factor_gnfs(msieve_obj *obj, mp_t *input_n,
 			max_relations += relations_found;
 		}
 	}
-
+#if 0
 	if (obj->flags & MSIEVE_FLAG_NFS_LA)
 		nfs_solve_linear_system(obj, n);
 		
 	if (obj->flags & MSIEVE_FLAG_NFS_SQRT)
 		factor_found = nfs_find_factors(obj, n, factor_list);
+#endif
 
 finished:
 	mpz_poly_free(&rat_poly);

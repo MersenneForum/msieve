@@ -18,18 +18,6 @@ $Id$
 #define BIN_SIZE (1 << (LOG2_BIN_SIZE))
 #define TARGET_HITS_PER_PRIME 40.0
 
-typedef struct {
-	DB *read_db;
-	DBC *read_curs;
-	void *read_ptr;
-	DBT read_key;
-	DBT read_data;
-	DBT curr_key;
-	DBT curr_data;
-} tmp_db_t;
-
-#define BULK_BUF_ROUND(x) ((x) & ~(1024 - 1))
-
 /*--------------------------------------------------------------------*/
 /* boilerplate code for managing a heap of relations */
 
@@ -90,9 +78,9 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	size_t write_batch_size;
 
 	DBT start_key, end_key;
-	uint8 prev_key[KEY_SIZE] = {0};
-	uint8 start_buf[KEY_SIZE] = {0};
-	uint8 end_buf[KEY_SIZE];
+	uint8 prev_key[AB_KEY_SIZE] = {0};
+	uint8 start_buf[AB_KEY_SIZE] = {0};
+	uint8 end_buf[AB_KEY_SIZE];
 
 	uint32 *prime_bins;
 	double bin_max;
@@ -187,14 +175,14 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 	memset(&start_key, 0, sizeof(DBT));
 	start_key.data = start_buf;
-	start_key.size = KEY_SIZE;
-	start_key.ulen = KEY_SIZE;
+	start_key.size = AB_KEY_SIZE;
+	start_key.ulen = AB_KEY_SIZE;
 	start_key.flags = DB_DBT_USERMEM;
 
 	memset(&end_key, 0, sizeof(DBT));
 	end_key.data = end_buf;
-	end_key.size = KEY_SIZE;
-	end_key.ulen = KEY_SIZE;
+	end_key.size = AB_KEY_SIZE;
+	end_key.ulen = AB_KEY_SIZE;
 	end_key.flags = DB_DBT_USERMEM;
 
 	i = 0;
@@ -204,7 +192,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 		tmp_db_t *t = tmp_db_ptr[i];
 
-		if (memcmp(t->curr_key.data, prev_key, KEY_SIZE) != 0) {
+		if (memcmp(t->curr_key.data, prev_key, AB_KEY_SIZE) != 0) {
 			num_relations++;
 			DB_MULTIPLE_KEY_WRITE_NEXT(store_ptr, &store_buf,
 					t->curr_key.data, t->curr_key.size,
@@ -228,7 +216,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 				/* all the data in write_db is written in sorted
 				   order, so compact the range we just wrote */
 
-				memcpy(end_buf, t->curr_key.data, KEY_SIZE);
+				memcpy(end_buf, t->curr_key.data, AB_KEY_SIZE);
 				status = write_db->compact(write_db, NULL,
 						&start_key, &end_key, NULL, 
 						0, NULL);
@@ -237,7 +225,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 							db_strerror(status));
 					exit(-1);
 				}
-				memcpy(start_buf, t->curr_key.data, KEY_SIZE);
+				memcpy(start_buf, t->curr_key.data, AB_KEY_SIZE);
 
 				DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 
@@ -247,7 +235,7 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 							t->curr_data.data, 
 							t->curr_data.size);
 			}
-			memcpy(prev_key, t->curr_key.data, KEY_SIZE);
+			memcpy(prev_key, t->curr_key.data, AB_KEY_SIZE);
 		}
 
 		DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
@@ -352,42 +340,6 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 
 	*num_relations_out = num_relations;
 	return BIN_SIZE * (i + 0.5);
-}
-
-/*--------------------------------------------------------------------*/
-static uint32 db_fills_cache(DB_ENV *env, char *db_name)
-{
-	uint32 i = 0;
-	uint32 evicted = 0;
-	DB_MPOOL_FSTAT **fstats = NULL;
-
-	/* a DB is considered to have filled up the cache when
-	   some of its pages have been evicted. This is actually
-	   somewhat convoluted to determine, because the cache
-	   can still be full of dirty pages from other databases,
-	   which are being evicted continuously */
-
-	if (env->memp_stat(env, NULL, &fstats, 0) != 0)
-		return 0;
-
-	if (fstats != NULL) {
-
-		while (1) {
-			DB_MPOOL_FSTAT *f = fstats[i++];
-
-			if (f == NULL)
-				break;
-
-			if (strcmp(f->file_name, db_name) == 0) {
-				evicted = f->st_page_out;
-				break;
-			}
-		}
-
-		free(fstats);
-	}
-
-	return (evicted > 2000);
 }
 
 /*--------------------------------------------------------------------*/
@@ -515,7 +467,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 		num_relations++;
 		DB_MULTIPLE_KEY_RESERVE_NEXT(store_ptr, &store_buf,
-				rel_key, KEY_SIZE,
+				rel_key, AB_KEY_SIZE,
 				rel_data, array_size + 2);
 
 		if (rel_key == NULL || rel_data == NULL) {
@@ -544,13 +496,13 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 			DB_MULTIPLE_WRITE_INIT(store_ptr, &store_buf);
 
 			DB_MULTIPLE_KEY_RESERVE_NEXT(store_ptr, &store_buf,
-					rel_key, KEY_SIZE,
+					rel_key, AB_KEY_SIZE,
 					rel_data, array_size + 2);
 
 			/* if the number of committed relations overflows
 			    the cache, flush the DB to disk and start another */
 
-			if (db_fills_cache(filter_env, db_name)) {
+			if (db_fills_cache(filter_env, db_name, 2000)) {
 
 				/* the DB is small enough to fit in cache,
 				   so compacting it is a cheap operation. 

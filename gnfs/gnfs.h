@@ -271,18 +271,12 @@ uint32 nfs_find_factors(msieve_obj *obj, mpz_t n,
 /* canonical representation of an ideal. NFS filtering
    and linear algebra will only work if the different
    ideals that occur in a factorization map to unique
-   values of this structure. 
-   
-   Every ideal has a prime p and root r. To save space
-   but still allow 48-bit p we store (p-1)/2 (thanks to
-   Alex Kruppa for this trick) */
+   values of this structure. */
 
 typedef struct {
-	uint32 p_lo;  		/* (p - 1) / 2 (low 32 bits) */
-	uint32 r_lo;            /* root for ideal (low 32 bits) */
-	uint16 p_hi : 15;       /* (p - 1) / 2 (high 16 bits) */
-	uint16 rat_or_alg : 1;  /* RATIONAL_IDEAL, ALGEBRAIC_IDEAL */
-	uint16 r_hi;            /* root for ideal (high 16 bits) */
+	uint64 rat_or_alg : 1;  /* RATIONAL_IDEAL, ALGEBRAIC_IDEAL */
+	uint64 p : 63; 		/* (p - 1) / 2 */
+	uint64 r;               /* root for ideal */
 } ideal_t;
 
 /* factors of relations are stored in a runlength-

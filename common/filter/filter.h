@@ -60,13 +60,13 @@ static INLINE relation_ideal_t *next_relation_ptr(relation_ideal_t *r) {
 
 typedef struct {
 	relation_ideal_t *relation_array;  /* relations after singleton phase */
-	uint32 num_relations;       /* current number of relations */
-	uint32 num_ideals;          /* current number of unique large ideals */
+	uint64 num_relations;       /* current number of relations */
+	uint64 num_ideals;          /* current number of unique large ideals */
 	uint32 filtmin_r;           /* min. value a rational ideal needs 
 				       to be tracked during filtering */
 	uint32 filtmin_a;           /* min. value an algebraic ideal needs 
 				       to be tracked during filtering */
-	uint32 target_excess;      /* how many more relations than ideals
+	uint64 target_excess;      /* how many more relations than ideals
 					are required for filtering to proceed */
 	uint32 max_ideal_weight;   /* the largest number of relations that
 				        contain the same ideal */
