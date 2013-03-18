@@ -60,20 +60,24 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 
 /*--------------------------------------------------------------------*/
 static uint32
-merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
-			size_t batch_size, uint32 num_db, 
+merge_relation_files(msieve_obj *obj,
+			size_t mem_size, uint32 num_db, 
 			uint64 num_relations_in,
 			uint64 *num_relations_out)
 {
 	uint32 i, j;
 	int32 status;
+	savefile_t *savefile = &obj->savefile;
 	char buf[LINE_BUF_SIZE];
 	uint64 num_relations;
+	DB_ENV *filter_env;
 	DB *write_db;
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
 	void *store_ptr;
 	DBT store_buf;
+	size_t cache_size;
+	size_t batch_size;
 	size_t read_batch_size;
 	size_t write_batch_size;
 
@@ -93,6 +97,23 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 	tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
 	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
 					sizeof(uint32));
+
+	/* We split the available memory 50-50, between
+	   DB cache and IO buffers */
+
+	if (0.5 * mem_size > 0xc0000000)
+		batch_size = 0xc0000000;
+	else
+		batch_size = 0.5 * mem_size;
+
+	cache_size = mem_size - batch_size; 
+
+	sprintf(buf, "%s.filter", savefile->name);
+	filter_env = init_filter_env(obj, buf, cache_size);
+	if (filter_env == NULL) {
+		printf("error opening filtering DB env\n");
+		exit(-1);
+	}
 
 	/* allocate 60% of the available memory for write
 	   buffers, with the remainder split evenly across all the
@@ -115,15 +136,15 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		exit(-1);
 	}
 
-	/* open all the input DBs */
+	/* open all the input DBs; keep them out of the environment,
+	   to avoid cache pollution from reads */
 
 	for (i = 0; i < num_db; i++) {
 
 		tmp_db_t *t = tmp_db + i;
 
-		sprintf(buf, "tmpdb.%u", i);
-		t->read_db = init_relation_db(obj, filter_env, 
-					buf, DB_RDONLY);
+		sprintf(buf, "%s.filter/tmpdb.%u", savefile->name, i);
+		t->read_db = init_relation_db(obj, NULL, buf, DB_RDONLY);
 		if (t->read_db == NULL) {
 			printf("error opening input DB\n");
 			exit(-1);
@@ -301,12 +322,13 @@ merge_relation_files(msieve_obj *obj, DB_ENV *filter_env,
 		t->read_curs->close(t->read_curs);
 		t->read_db->close(t->read_db, 0);
 
-		sprintf(buf, "tmpdb.%u", i);
-		filter_env->dbremove(filter_env, NULL, buf, NULL, 0);
+		sprintf(buf, "%s.filter/tmpdb.%u", savefile->name, i);
+		remove(buf);
 	}
 	free(tmp_db);
 	free(tmp_db_ptr);
 	free(store_buf.data);
+	free_filter_env(obj, filter_env);
 
 	logprintf(obj, "wrote %" PRIu64 " duplicates and %"
 			PRIu64 " unique relations\n", 
@@ -582,11 +604,13 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 		exit(-1);
 	}
 
-	/* free pass 1 stuff */
+	/* free pass 1 stuff; also tear down the DB environment to
+	   force it to flush to disk */
 
 	mpz_clear(scratch);
 	savefile_close(savefile);
 	free(store_buf.data);
+	free_filter_env(obj, filter_env);
 
 	if (num_skipped_b > 0)
 		logprintf(obj, "skipped %" PRIu64 
@@ -596,11 +620,9 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	/* pass 2: merge the temporary DBs into a single output one */
 
-	bound = merge_relation_files(obj, filter_env, 
-				batch_size, num_db, 
+	bound = merge_relation_files(obj, mem_size, num_db, 
 				num_relations,
 				num_relations_out);
-	free_filter_env(obj, filter_env);
 	return bound;
 }
 

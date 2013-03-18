@@ -56,19 +56,22 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 
 /*--------------------------------------------------------------------*/
 static void
-merge_ideal_files(msieve_obj *obj, DB_ENV *filter_env,
-			size_t batch_size, uint32 num_db, 
-			uint64 *num_ideals_out)
+merge_ideal_files(msieve_obj *obj, size_t mem_size, 
+		uint32 num_db, uint64 *num_ideals_out)
 {
 	uint32 i, j;
 	int32 status;
+	savefile_t *savefile = &obj->savefile;
 	char buf[LINE_BUF_SIZE];
 	uint64 num_ideals;
 	DB *write_db;
+	DB_ENV * filter_env;
 	tmp_db_t *tmp_db;
 	tmp_db_t **tmp_db_ptr;
 	void *store_ptr;
 	DBT store_buf;
+	size_t cache_size;
+	size_t batch_size;
 	size_t read_batch_size;
 	size_t write_batch_size;
 
@@ -83,6 +86,25 @@ merge_ideal_files(msieve_obj *obj, DB_ENV *filter_env,
 
 	tmp_db = (tmp_db_t *)xcalloc(num_db, sizeof(tmp_db_t));
 	tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
+
+	/* we divide the input memory bound into an allocation for
+	   Berkeley DB, and an allocation for the bulk buffers that
+	   read from and write to it. We split it 50-50, with an 
+	   upper limit of 3GB for the bulk buffers */
+
+	if (0.5 * mem_size > 0xc0000000)
+		batch_size = 0xc0000000;
+	else
+		batch_size = 0.5 * mem_size;
+
+	cache_size = mem_size - batch_size; 
+
+	sprintf(buf, "%s.filter", savefile->name);
+	filter_env = init_filter_env(obj, buf, cache_size);
+	if (filter_env == NULL) {
+		printf("error opening filtering DB env\n");
+		exit(-1);
+	}
 
 	/* allocate 60% of the available memory for write
 	   buffers, with the remainder split evenly across all the
@@ -105,15 +127,17 @@ merge_ideal_files(msieve_obj *obj, DB_ENV *filter_env,
 		exit(-1);
 	}
 
-	/* open all the input DBs */
+	/* open the input DBs for reading; do *not* make them part
+	   of the DB environment, as we will be streaming ideals
+	   and don't want them evicting cache pages that are being
+	   written with ideals */
 
 	for (i = 0; i < num_db; i++) {
 
 		tmp_db_t *t = tmp_db + i;
 
-		sprintf(buf, "tmpdb.%u", i);
-		t->read_db = init_ideal_db(obj, filter_env, 
-					buf, DB_RDONLY);
+		sprintf(buf, "%s.filter/tmpdb.%u", savefile->name, i);
+		t->read_db = init_ideal_db(obj, NULL, buf, DB_RDONLY);
 		if (t->read_db == NULL) {
 			printf("error opening input DB\n");
 			exit(-1);
@@ -296,12 +320,14 @@ merge_ideal_files(msieve_obj *obj, DB_ENV *filter_env,
 		t->read_curs->close(t->read_curs);
 		t->read_db->close(t->read_db, 0);
 
-		sprintf(buf, "tmpdb.%u", i);
-		filter_env->dbremove(filter_env, NULL, buf, NULL, 0);
+		sprintf(buf, "%s.filter/tmpdb.%u", savefile->name, i);
+		remove(buf);
 	}
 	free(tmp_db);
 	free(tmp_db_ptr);
 	free(store_buf.data);
+	free_filter_env(obj, filter_env);
+
 	logprintf(obj, "found %" PRIu64 " unique ideals\n", num_ideals);
 	*num_ideals_out = num_ideals;
 }
@@ -572,11 +598,10 @@ void nfs_write_lp_file(msieve_obj *obj,
 
 	free(read_buf.data);
 	free(store_buf.data);
+	free_filter_env(obj, filter_env);
 
 	/* pass 2: merge the temporary DBs into a single output one */
 
-	merge_ideal_files(obj, filter_env, 
-				batch_size, num_db, 
-				&filter->num_ideals);
-	free_filter_env(obj, filter_env);
+	merge_ideal_files(obj, mem_size,
+			num_db, &filter->num_ideals);
 }
