@@ -118,7 +118,7 @@ static void dump_relation_numbers(msieve_obj *obj, filter_t *filter) {
 static void set_filtering_bounds(msieve_obj *obj, factor_base_t *fb, 
 			uint32 filtmin_r, uint32 filtmin_a, 
 			uint32 *entries_r_out, uint32 *entries_a_out,
-			uint64 num_relations, filter_t *filter) {
+			filter_t *filter) {
 
 	uint32 entries_r, entries_a;
 
@@ -237,7 +237,27 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	logprintf(obj, "\n");
 	logprintf(obj, "commencing relation filtering\n");
 
+#if defined(__linux__)
+	/* Berkeley DB manages disk data in its own cache, and reads
+	   and writes also go through the filesystem cache. On linux this 
+	   means that by default, grinding through reading or writing a
+	   large dataset will kick everything on your computer out of 
+	   memory. The best way to stop this is not to store everything
+	   in memory twice, which means using direct IO.
+	   
+	   Berkeley DB will not use direct IO in linux, because memory
+	   buffers have to be aligned to a large boundary, which BDB
+	   does not want to figure out on the fly. Making direct
+	   IO work better in linux will never happen because it is
+	   insufficiently aesthetically pleasing to Linus Torvalds. In
+	   the meantime, the following is the least bad solution */
+
+	logprintf(obj, "Make sure to do 'echo 0 > /proc/sys/vm/swappiness'\n");
+#endif
+
 	/* parse arguments */
+
+	filtmin_r = filtmin_a = 1000000;
 
 	if (obj->nfs_args != NULL) {
 
@@ -313,17 +333,13 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 
 	/* delete duplicate relations */
 
-	filtmin_r = filtmin_a = nfs_purge_duplicates(obj, &fb, ram_size,
-					max_relations, &num_relations);
-	if (filter_bound > 0)
-		filtmin_r = filtmin_a = filter_bound;
+	nfs_purge_duplicates(obj, &fb, ram_size, max_relations);
 
 	/* set up the first disk-based pass; if the dataset is
 	   "small", this will be the only such pass */
 
 	set_filtering_bounds(obj, &fb, filtmin_r, filtmin_a,
-				&entries_r, &entries_a, num_relations, 
-				&filter);
+				&entries_r, &entries_a, &filter);
 
 	/* separate out the large ideals and delete singletons
 	   once they are all in memory. If the dataset is large,
