@@ -30,10 +30,9 @@ extern "C" {
    relations found (or all relations if zero). The return
    value is the large prime bound to use for the singleton removal */
 
-uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
+void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				uint64 mem_size,
-				uint64 max_relations,
-				uint64 *num_relations_out); 
+				uint64 max_relations);
 
 /* read '<savefile_name>.d' and create '<savefile_name>.lp', a 
    binary file containing the relations surviving the singleton

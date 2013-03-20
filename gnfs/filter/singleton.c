@@ -57,7 +57,7 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 /*--------------------------------------------------------------------*/
 static void
 merge_ideal_files(msieve_obj *obj, size_t mem_size, 
-		uint32 num_db, uint64 *num_ideals_out)
+		uint32 num_db, filter_t *filter)
 {
 	uint32 i, j;
 	int32 status;
@@ -114,7 +114,7 @@ merge_ideal_files(msieve_obj *obj, size_t mem_size,
 	read_batch_size = (batch_size - write_batch_size) / num_db;
 	read_batch_size = MAX(read_batch_size, 1048576);
 
-	/* open the destination DB */
+	/* open the destination DB (we can augment an existing one) */
 
 	memset(&store_buf, 0, sizeof(DBT));
 	store_buf.ulen = BULK_BUF_ROUND(write_batch_size);
@@ -329,7 +329,7 @@ merge_ideal_files(msieve_obj *obj, size_t mem_size,
 	free_filter_env(obj, filter_env);
 
 	logprintf(obj, "found %" PRIu64 " unique ideals\n", num_ideals);
-	*num_ideals_out = num_ideals;
+	filter->num_ideals = num_ideals;
 }
 
 /*--------------------------------------------------------------------*/
@@ -343,6 +343,7 @@ void nfs_write_lp_file(msieve_obj *obj,
 	char db_name[24];
 
 	uint32 num_db = 0;
+	uint64 num_relations = 0;
 	size_t batch_size;
 	uint64 cache_size;
 
@@ -419,7 +420,8 @@ void nfs_write_lp_file(msieve_obj *obj,
 	/* open first ideal DB to write */
 
 	sprintf(db_name, "tmpdb.%u", num_db++);
-	ideal_db = init_ideal_db(obj, filter_env, db_name, DB_CREATE);
+	ideal_db = init_ideal_db(obj, filter_env, db_name, 
+				DB_CREATE | DB_TRUNCATE);
 	if (ideal_db == NULL) {
 		printf("error opening ideal DB\n");
 		exit(-1);
@@ -465,6 +467,7 @@ void nfs_write_lp_file(msieve_obj *obj,
 		/* pack the retrieved results into a relation_t and
 		   get its ideal decomposition */
 
+		num_relations++;
 		memcpy(&tmp_rel.a, curr_key, sizeof(int64));
 		memcpy(&tmp_rel.b, curr_key + sizeof(int64), sizeof(uint32));
 		tmp_rel.num_factors_r = curr_data[0];
@@ -543,7 +546,8 @@ void nfs_write_lp_file(msieve_obj *obj,
 					sprintf(db_name, "tmpdb.%u", num_db++);
 
 					ideal_db = init_relation_db(obj, filter_env, 
-								db_name, DB_CREATE);
+								db_name, DB_CREATE |
+								DB_TRUNCATE);
 					if (ideal_db == NULL) {
 						printf("error opening ideal DB\n");
 						exit(-1);
@@ -600,8 +604,10 @@ void nfs_write_lp_file(msieve_obj *obj,
 	free(store_buf.data);
 	free_filter_env(obj, filter_env);
 
+	filter->num_relations = num_relations;
+	logprintf(obj, "read %" PRIu64 " relations\n", num_relations);
+
 	/* pass 2: merge the temporary DBs into a single output one */
 
-	merge_ideal_files(obj, mem_size,
-			num_db, &filter->num_ideals);
+	merge_ideal_files(obj, mem_size, num_db, &filter);
 }

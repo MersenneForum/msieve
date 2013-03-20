@@ -59,11 +59,10 @@ static void make_heap(tmp_db_t **h, uint32 size) {
 }
 
 /*--------------------------------------------------------------------*/
-static uint32
+static void
 merge_relation_files(msieve_obj *obj,
 			size_t mem_size, uint32 num_db, 
-			uint64 num_relations_in,
-			uint64 *num_relations_out)
+			uint64 num_relations_in)
 {
 	uint32 i, j;
 	int32 status;
@@ -86,17 +85,12 @@ merge_relation_files(msieve_obj *obj,
 	uint8 start_buf[AB_KEY_SIZE] = {0};
 	uint8 end_buf[AB_KEY_SIZE];
 
-	uint32 *prime_bins;
-	double bin_max;
-
 	logprintf(obj, "commencing duplicate removal, pass 2\n");
 	if (num_db > 1)
 		logprintf(obj, "merging %u temporary DB files\n", num_db);
 
 	tmp_db = (tmp_db_t *)xcalloc(num_db, sizeof(tmp_db_t));
 	tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
-	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
-					sizeof(uint32));
 
 	/* We split the available memory 50-50, between
 	   DB cache and IO buffers */
@@ -123,7 +117,7 @@ merge_relation_files(msieve_obj *obj,
 	read_batch_size = (batch_size - write_batch_size) / num_db;
 	read_batch_size = MAX(read_batch_size, 1048576);
 
-	/* open the destination DB */
+	/* open the destination DB (we can augment an existing one) */
 
 	memset(&store_buf, 0, sizeof(DBT));
 	store_buf.ulen = BULK_BUF_ROUND(write_batch_size);
@@ -334,38 +328,10 @@ merge_relation_files(msieve_obj *obj,
 			PRIu64 " unique relations\n", 
 			num_relations_in - num_relations, 
 			num_relations);
-#if 0
-	/* the large prime cutoff for the rest of the filtering
-	   process should be chosen here. We don't want the bound
-	   to depend on an arbitrarily chosen factor base, since
-	   that bound may be too large or much too small. The former
-	   would make filtering take too long, and the latter 
-	   could make filtering impossible.
-
-	   Conceptually, we want the bound to be the point below
-	   which large primes appear too often in the dataset. */
-
-	i = 1 << (32 - LOG2_BIN_SIZE);
-	bin_max = (double)BIN_SIZE * i /
-			(log((double)BIN_SIZE * i) - 1);
-	for (i--; i > 2; i--) {
-		double bin_min = (double)BIN_SIZE * i /
-				(log((double)BIN_SIZE * i) - 1);
-		double hits_per_prime = (double)prime_bins[i] /
-						(bin_max - bin_min);
-		if (hits_per_prime > TARGET_HITS_PER_PRIME)
-			break;
-		bin_max = bin_min;
-	}
-#endif
-	free(prime_bins);
-
-	*num_relations_out = num_relations;
-	return BIN_SIZE * (i + 0.5);
 }
 
 /*--------------------------------------------------------------------*/
-uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
+nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 				uint64 mem_size,
 				uint64 max_relations, 
 				uint64 *num_relations_out) 
@@ -380,7 +346,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	uint64 num_skipped_b;
 	mpz_t scratch;
 
-	uint32 bound;
 	uint32 num_db = 0;
 	size_t batch_size;
 	uint64 cache_size;
@@ -423,7 +388,8 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	}
 
 	sprintf(db_name, "tmpdb.%u", num_db++);
-	reldb = init_relation_db(obj, filter_env, db_name, DB_CREATE);
+	reldb = init_relation_db(obj, filter_env, db_name, 
+				DB_CREATE | DB_TRUNCATE);
 	if (reldb == NULL) {
 		printf("error opening relation DB\n");
 		exit(-1);
@@ -550,8 +516,8 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 				sprintf(db_name, "tmpdb.%u", num_db++);
 
-				reldb = init_relation_db(obj, filter_env, 
-							db_name, DB_CREATE);
+				reldb = init_relation_db(obj, filter_env, db_name, 
+							DB_CREATE | DB_TRUNCATE);
 				if (reldb == NULL) {
 					printf("error opening relation DB\n");
 					exit(-1);
@@ -620,23 +586,5 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	/* pass 2: merge the temporary DBs into a single output one */
 
-	bound = merge_relation_files(obj, mem_size, num_db, 
-				num_relations,
-				num_relations_out);
-	return bound;
+	merge_relation_files(obj, mem_size, num_db, num_relations);
 }
-
-#if 0
-		/* add the factors of tmp_rel to the counts of (32-bit) primes */
-	   
-		for (i = array_size = 0; i < num_r + num_a; i++) {
-			uint64 p = decompress_p(tmp_rel.factors, 
-						&array_size);
-
-			if (p >= ((uint64)1 << 32))
-				continue;
-
-			prime_bins[p / BIN_SIZE]++;
-		}
-#endif
-
