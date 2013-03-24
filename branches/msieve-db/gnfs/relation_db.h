@@ -23,40 +23,61 @@ extern "C"
 {
 #endif
 
-#define AB_KEY_SIZE (sizeof(int64) + sizeof(uint32))
-
-typedef struct {
-	DB *read_db;
-	DBC *read_curs;
-	void *read_ptr;
-	DBT read_key;
-	DBT read_data;
-	DBT curr_key;
-	DBT curr_data;
-} tmp_db_t;
-
-#define BULK_BUF_ROUND(x) ((x) & ~(1024 - 1))
-
-int compare_relations(DB *db, const DBT *rel1,
-			const DBT *rel2);
-
-int compare_ideals(DB *db, const DBT *rel1,
-			const DBT *rel2);
-
 DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 				uint64 cache_size);
 
 void free_filter_env(msieve_obj *obj, DB_ENV *env);
 
-DB * init_relation_db(msieve_obj *obj, 
-			DB_ENV *filter_env, char *name,
-			uint32 open_flags);
+/* placeholders for callbacks */
 
-DB * init_ideal_db(msieve_obj *obj, 
-			DB_ENV *filter_env, char *name,
-			uint32 open_flags);
+typedef int (*compare_cb)(DB *db, const DBT *rel1, const DBT *rel2);
 
-uint32 db_fills_cache(DB_ENV *env, char *db_name, uint32 min_evict);
+typedef int (*compress_cb)(DB *db, 
+			const DBT *prev_key, const DBT *prev_data, 
+			const DBT *key, const DBT *data, 
+			DBT *dest);
+
+typedef int (*decompress_cb)(DB *db, 
+			const DBT *prev_key, const DBT *prev_data, 
+			DBT *compressed, 
+			DBT *key, DBT *data);
+
+/* batch stream interface to databases */
+
+void * stream_db_init(msieve_obj *obj, 
+			DB_ENV *filter_env, 
+			compare_cb compare,
+			compress_cb compress,
+			decompress_cb decompress,
+			char *name_prefix);
+
+void stream_db_free(void *s);
+
+/* batch write interface */
+
+void stream_db_write_init(void *s,
+		uint32 open_flags,
+		size_t buffer_size);
+
+void stream_db_write_next(void *s,
+		void *key, uint32 key_size,
+		void *data, uint32 data_size);
+
+void stream_db_write_close(void *s);
+
+/* batch read interface */
+
+void stream_db_read_init(void *s,
+		uint32 open_flags,
+		size_t buffer_size,
+		DBT **first_key, 
+		DBT **first_data);
+
+void stream_db_read_next(void *s,
+		DBT **next_key, 
+		DBT **next_data);
+
+void stream_db_read_close(void *s);
 
 #ifdef __cplusplus
 }
