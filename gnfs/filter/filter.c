@@ -344,9 +344,9 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	/* separate out the large ideals and delete singletons
 	   once they are all in memory. If the dataset is large,
 	   first delete most of the singletons from the disk file */
-
-	nfs_write_lp_file(obj, ram_size, &filter);
 #if 0
+	nfs_write_lp_file(obj, ram_size, &filter);
+
 	if (filter.lp_file_size > ram_size / 2) {
 		filter_purge_lp_singletons(obj, &filter, ram_size);
 #if 0

@@ -13,279 +13,40 @@ $Id$
 --------------------------------------------------------------------*/
 
 #include <errno.h>
-#include "gnfs.h"
+#include "relation_db.h"
 
-typedef int (*compare_cb)(DB *db, const DBT *rel1, const DBT *rel2);
+#define BULK_BUF_ROUND(x) ((x) & ~(1024 - 1))
 
-typedef int (*compress_cb)(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest);
+typedef struct {
+	DB *read_db;
+	DBC *read_curs;
+	void *read_ptr;
+	DBT read_key;
+	DBT read_data;
+	DBT curr_key;
+	DBT curr_data;
+} tmp_db_t;
 
-typedef int (*decompress_cb)(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			DBT *compressed, 
-			DBT *key, DBT *data);
+typedef struct {
+	msieve_obj *obj;
+	DB_ENV *env;
+	char *name_prefix;
+	compare_cb compare_fcn;
+	compress_cb compress_fcn;
+	decompress_cb decompress_fcn;
 
-/*--------------------------------------------------------------------*/
-uint32 db_fills_cache(DB_ENV *env, char *db_name, uint32 min_evict)
-{
-	uint32 i = 0;
-	uint32 evicted = 0;
-	DB_MPOOL_FSTAT **fstats = NULL;
+	uint32 num_db;
+	uint32 curr_num_db;
+	uint32 curr_db;
+	uint32 open_flags;
 
-	/* a DB is considered to have filled up the cache when
-	   some of its pages have been evicted. This is actually
-	   somewhat convoluted to determine, because the cache
-	   can still be full of dirty pages from other databases,
-	   which are being evicted continuously */
+	DB * write_db;
+	DBT store_buf;
+	void *store_ptr;
 
-	if (env->memp_stat(env, NULL, &fstats, 0) != 0)
-		return 0;
-
-	if (fstats != NULL) {
-
-		while (1) {
-			DB_MPOOL_FSTAT *f = fstats[i++];
-
-			if (f == NULL)
-				break;
-
-			if (strcmp(f->file_name, db_name) == 0) {
-				evicted = f->st_page_out;
-				break;
-			}
-		}
-
-		free(fstats);
-	}
-
-	return (evicted > min_evict);
-}
-
-/*--------------------------------------------------------------------*/
-int compare_relations(DB *db, const DBT *rel1,
-			const DBT *rel2)
-{
-	int64 a1, a2;
-	uint32 b1, b2;
-
-	memcpy(&a1, rel1->data, sizeof(int64));
-	memcpy(&b1, (uint8 *)rel1->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, rel2->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)rel2->data + sizeof(int64), sizeof(uint32));
-
-	if (b1 > b2)
-		return 1;
-	if (b1 < b2)
-		return -1;
-
-	if (a1 > a2)
-		return 1;
-	if (a1 < a2)
-		return -1;
-
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int compress_relation(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest)
-{
-	int64 a2;
-	uint32 b1, b2;
-	uint32 count = 0;
-	uint8 a_neg = 0;
-	uint8 b_diff_zero = 0;
-	uint8 tmp[24];
-
-	memcpy(&b1, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, key->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)key->data + sizeof(int64), sizeof(uint32));
-
-	if (a2 < 0) {
-		a_neg = 2;
-		a2 = -a2;
-	}
-	if (b1 == b2)
-		b_diff_zero = 1;
-
-	count = compress_p(tmp, 
-			a2 << 2 | a_neg | b_diff_zero, 
-			count);
-
-	if (!b_diff_zero)
-		count = compress_p(tmp, b2 - b1, count);
-
-	/* the BDB docs only show this in an example and not in the
-	   API reference, but the compressed buffer is going to have 
-	   several key/data pairs concatenated, and the decompression
-	   routine has to have each relation know how large its 
-	   compressed version is because it cannot blindly use the
-	   size of the compressed buffer */
-
-	count = compress_p(tmp, data->size, count);
-
-	dest->size = count + data->size;
-	if (dest->ulen < dest->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(dest->data, tmp, count);
-	memcpy((uint8 *)dest->data + count, data->data, data->size);
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int decompress_relation(DB *db, 
-		const DBT *prev_key, const DBT *prev_data, 
-		DBT *compressed, 
-		DBT *key, DBT *data)
-{
-	uint64 a2;
-	uint32 b1, b2;
-	uint32 b_diff_zero;
-	uint32 a_neg;
-	uint32 count = 0;
-	uint32 data_size;
-
-	a2 = decompress_p((uint8 *)compressed->data, &count);
-	a_neg = a2 & 2;
-	b_diff_zero = a2 & 1;
-	a2 >>= 2;
-	if (a_neg)
-		a2 = -a2;
-
-	memcpy(&b2, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
-	if (!b_diff_zero)
-		b2 += (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	key->size = AB_KEY_SIZE;
-	data->size = data_size;
-	if (key->ulen < key->size || data->ulen < data->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
-	memcpy(key->data, &a2, sizeof(uint64));
-	memcpy((uint8 *)key->data + sizeof(uint64), &b2, sizeof(uint32));
-
-	/* the BDB docs only show this in an example and not in the
-	   API reference, but the compressed buffer needs to know
-	   how many bytes the current relation needed */
-
-	compressed->size = count + data_size;
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-int compare_ideals(DB *db, const DBT *i1,
-			const DBT *i2)
-{
-	/* Ordering is by prime, then by root of prime,
-	   then by rational or algebraic type. This ordering
-	   is designed to put the smallest ideals first */
-
-	ideal_t a, b;
-
-	memcpy(&a, i1->data, sizeof(ideal_t));
-	memcpy(&b, i2->data, sizeof(ideal_t));
-
-	if (a.p < b.p)
-		return -1;
-	if (a.p > b.p)
-		return 1;
-		
-	if (a.r < b.r)
-		return -1;
-	if (a.r > b.r)
-		return 1;
-
-	if (a.rat_or_alg < b.rat_or_alg)
-		return -1;
-	if (a.rat_or_alg > b.rat_or_alg)
-		return 1;
-		
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int compress_ideal(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest)
-{
-	ideal_t i1, i2;
-	uint64 p1, p2;
-	uint64 r2;
-	uint32 count = 0;
-	uint8 p_diff_zero = 0;
-	uint8 tmp[24];
-
-	memcpy(&i1, prev_key->data, sizeof(ideal_t));
-	memcpy(&i2, key->data, sizeof(ideal_t));
-
-	p1 = i1.p;
-	p2 = i2.p;
-	r2 = i2.r;
-
-	if (p1 == p2)
-		p_diff_zero = 1;
-
-	count = compress_p(tmp, 
-			r2 << 2 | i2.rat_or_alg << 1 | p_diff_zero, 
-			count);
-
-	if (!p_diff_zero)
-		count = compress_p(tmp, p2 - p1, count);
-
-	count = compress_p(tmp, data->size, count);
-
-	dest->size = count + data->size;
-	if (dest->ulen < dest->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(dest->data, tmp, count);
-	memcpy((uint8 *)dest->data + count, data->data, data->size);
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int decompress_ideal(DB *db, 
-		const DBT *prev_key, const DBT *prev_data, 
-		DBT *compressed, 
-		DBT *key, DBT *data)
-{
-	ideal_t i1, i2;
-	uint64 r2;
-	uint8 p_diff_zero;
-	uint32 count = 0;
-	uint32 data_size;
-
-	r2 = decompress_p((uint8 *)compressed->data, &count);
-	p_diff_zero = r2 & 1;
-	i2.rat_or_alg = (r2 >> 1) & 1;
-	i2.r = r2 >> 2;
-
-	memcpy(&i1, prev_key->data, sizeof(ideal_t));
-	i2.p = i1.p;
-	if (!p_diff_zero)
-		i2.p += decompress_p((uint8 *)compressed->data, &count);
-
-	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	key->size = sizeof(ideal_t);
-	data->size = data_size;
-	if (key->ulen < key->size || data->ulen < data->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
-	memcpy(key->data, &i2, sizeof(ideal_t));
-	compressed->size = count + data_size;
-	return 0;
-}
+	tmp_db_t *tmp_db;
+	tmp_db_t **tmp_db_ptr;
+} stream_db_t;
 
 /*--------------------------------------------------------------------*/
 DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
@@ -329,10 +90,6 @@ DB_ENV * init_filter_env(msieve_obj *obj, char *dirname,
 				db_strerror(status));
 		goto error_finished;
 	}
-
-	/* do not cache databases in disk cache and also in
-	   Berkeley DB's memory cache. Continue if the call
-	   fails, not all OSes support it */
 
 	return env;
 
@@ -393,8 +150,8 @@ static DB * init_db_core(msieve_obj *obj,
 		goto error_finished;
 	}
 
-	/* strip out DB_TRUNCATE, environments do not allow it */
 	if (filter_env && (open_flags & DB_TRUNCATE)) {
+		/* strip out DB_TRUNCATE, environments do not allow it */
 		open_flags &= ~DB_TRUNCATE;
 		status = filter_env->dbremove(filter_env, 
 					NULL, name, NULL, 0);
@@ -423,25 +180,371 @@ error_finished:
 }
 
 /*--------------------------------------------------------------------*/
-DB * init_relation_db(msieve_obj *obj, 
-			DB_ENV *filter_env, char *name,
-			uint32 open_flags)
+void * stream_db_init(msieve_obj *obj, 
+			DB_ENV *filter_env, 
+			compare_cb compare,
+			compress_cb compress,
+			decompress_cb decompress,
+			char *name_prefix)
 {
-	return init_db_core(obj, filter_env, name,
-				open_flags,
-				compare_relations,
-				compress_relation,
-				decompress_relation);
+	stream_db_t *s = (stream_db_t *)xcalloc(1, sizeof(stream_db_t));
+
+	if (s != NULL) {
+		s->obj = obj;
+		s->name_prefix = strdup(name_prefix);
+		s->env = filter_env;
+		s->compare_fcn = compare;
+		s->compress_fcn = compress;
+		s->decompress_fcn = decompress;
+	}
+	return s;
 }
 
 /*--------------------------------------------------------------------*/
-DB * init_ideal_db(msieve_obj *obj, 
-			DB_ENV *filter_env, char *name,
-			uint32 open_flags)
+void stream_db_free(void *s_in)
 {
-	return init_db_core(obj, filter_env, name,
-				open_flags,
-				compare_ideals,
-				compress_ideal,
-				decompress_ideal);
+	stream_db_t *s = (stream_db_t *)s_in;
+
+	free(s->name_prefix);
+	free(s);
 }
+
+/*--------------------------------------------------------------------*/
+/* boilerplate code for managing a heap of DB items */
+
+#define HEAP_SWAP(a,b) { tmp = a; a = b; b = tmp; }
+#define HEAP_PARENT(i)  (((i)-1) >> 1)
+#define HEAP_LEFT(i)    (2 * (i) + 1)
+#define HEAP_RIGHT(i)   (2 * (i) + 2)
+
+static void heapify(tmp_db_t **h, uint32 index, uint32 size,
+			compare_cb compare_fcn) 
+{
+	uint32 c;
+	tmp_db_t * tmp;
+	for (c = HEAP_LEFT(index); c < (size-1); 
+			index = c, c = HEAP_LEFT(index)) {
+
+		if (compare_fcn(NULL, &h[c]->curr_key,
+				&h[c+1]->curr_key) >= 0)
+			c++;
+
+		if (compare_fcn(NULL, &h[index]->curr_key,
+				&h[c]->curr_key) >= 0) {
+			HEAP_SWAP(h[index], h[c]);
+		}
+		else
+			return;
+	}
+	if (c == (size-1) && 
+	    compare_fcn(NULL, &h[index]->curr_key,
+				&h[c]->curr_key) >= 0) {
+		HEAP_SWAP(h[index], h[c]);
+	}
+}
+
+static void make_heap(tmp_db_t **h, uint32 size,
+			compare_cb compare_fcn) 
+{
+	uint32 i;
+	for (i = HEAP_PARENT(size); i; i--)
+		heapify(h, i-1, size, compare_fcn);
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_read_init(void *s_in,
+		uint32 open_flags,
+		size_t buffer_size,
+		DBT **first_key, 
+		DBT **first_data)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	uint32 num_db = s->num_db;
+	int32 status;
+	uint32 i, j;
+
+	s->open_flags = open_flags;
+	s->tmp_db = (tmp_db_t *)xcalloc(num_db, sizeof(tmp_db_t));
+	s->tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
+
+	buffer_size = buffer_size / num_db;
+	buffer_size = MAX(buffer_size, 1 << 20);
+
+	for (i = 0; i < num_db; i++) {
+
+		char db_name[LINE_BUF_SIZE];
+		tmp_db_t *t = s->tmp_db + i;
+
+		sprintf(db_name, "%s.%u", s->name_prefix, i);
+		t->read_db = init_db_core(s->obj, s->env, db_name, 
+					DB_RDONLY | s->open_flags,
+					s->compare_fcn,
+					s->compress_fcn,
+					s->decompress_fcn);
+		if (t->read_db == NULL) {
+			logprintf(s->obj, "error opening input DB\n");
+			exit(-1);
+		}
+
+		status = t->read_db->cursor(t->read_db, NULL, 
+					&t->read_curs, 
+					DB_CURSOR_BULK);
+		if (status != 0) {
+			logprintf(s->obj, "read cursor open failed: %s\n",
+						db_strerror(status));
+			exit(-1);
+		}
+
+		t->read_data.ulen = BULK_BUF_ROUND(buffer_size);
+		t->read_data.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+		t->read_data.data = xmalloc(t->read_data.ulen);
+	}
+
+	/* do the initial read from each DB. Squeeze out any
+	   DBs that cannot deliver, heapify all the ones that can */
+
+	for (i = j = 0; i < num_db; i++) {
+
+		tmp_db_t *t = s->tmp_db + i;
+
+		status = t->read_curs->get(t->read_curs, 
+					&t->read_key, 
+					&t->read_data, 
+					DB_NEXT | DB_MULTIPLE_KEY);
+		if (status == 0) {
+			DB_MULTIPLE_INIT(t->read_ptr, &t->read_data);
+			DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
+					t->curr_key.data,
+					t->curr_key.size,
+					t->curr_data.data,
+					t->curr_data.size);
+			s->tmp_db_ptr[j++] = t;
+		}
+	}
+
+	if (j != 0) {
+		if (j > 1)
+			make_heap(s->tmp_db_ptr, j, s->compare_fcn);
+
+		*first_key = &s->tmp_db_ptr[0]->curr_key;
+		*first_data = &s->tmp_db_ptr[0]->curr_data;
+		s->curr_num_db = j;
+		s->curr_db = 0;
+	}
+	else {
+		*first_key = NULL;
+		*first_data = NULL;
+	}
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_read_next(void *s_in,
+		DBT **next_key, DBT **next_data)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	int32 status;
+	uint32 i = s->curr_db;
+	uint32 j = s->curr_num_db;
+	tmp_db_t *t = s->tmp_db_ptr[i];
+
+	if (j == i) {
+		*next_key = NULL;
+		*next_data = NULL;
+		return;
+	}
+
+	DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
+				t->curr_key.data,
+				t->curr_key.size,
+				t->curr_data.data,
+				t->curr_data.size);
+
+	if (t->read_ptr == NULL) {
+
+		status = t->read_curs->get(t->read_curs, 
+				&t->read_key, 
+				&t->read_data, 
+				DB_NEXT | DB_MULTIPLE_KEY);
+		if (status != 0) {
+			s->curr_db = ++i;
+		}
+		else {
+			DB_MULTIPLE_INIT(t->read_ptr, 
+					&t->read_data);
+			DB_MULTIPLE_KEY_NEXT(t->read_ptr, 
+					&t->read_data,
+					t->curr_key.data,
+					t->curr_key.size,
+					t->curr_data.data,
+					t->curr_data.size);
+		}
+	}
+
+	if (j == i) {
+		*next_key = NULL;
+		*next_data = NULL;
+	}
+	else {
+		if (j - i > 1) {
+			heapify(s->tmp_db_ptr + i, 0, j - i, 
+					s->compare_fcn);
+		}
+
+		*next_key = &s->tmp_db_ptr[i]->curr_key;
+		*next_data = &s->tmp_db_ptr[i]->curr_data;
+	}
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_read_close(void *s_in)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	uint32 i;
+
+	for (i = 0; i < s->num_db; i++) {
+
+		tmp_db_t *t = s->tmp_db + i;
+		char db_name[LINE_BUF_SIZE];
+
+		free(t->read_data.data);
+
+		t->read_curs->close(t->read_curs);
+		t->read_db->close(t->read_db, 0);
+
+		sprintf(db_name, "%s.%u", s->name_prefix, i);
+		remove(db_name);
+	}
+	free(s->tmp_db);
+	free(s->tmp_db_ptr);
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_write_init(void *s_in,
+		uint32 open_flags,
+		size_t buffer_size)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	char db_name[LINE_BUF_SIZE];
+
+	s->num_db = 0;
+	s->open_flags = open_flags;
+	sprintf(db_name, "%s.%u", s->name_prefix, s->num_db++);
+
+	s->write_db = init_db_core(s->obj, s->env, db_name, 
+				DB_CREATE | DB_TRUNCATE | s->open_flags,
+				s->compare_fcn,
+				s->compress_fcn,
+				s->decompress_fcn);
+	if (s->write_db == NULL) {
+		printf("error opening DB\n");
+		exit(-1);
+	}
+
+	memset(&s->store_buf, 0, sizeof(DBT));
+	s->store_buf.ulen = BULK_BUF_ROUND(buffer_size);
+	s->store_buf.flags = DB_DBT_USERMEM | DB_DBT_BULK;
+	s->store_buf.data = xmalloc(s->store_buf.ulen);
+	DB_MULTIPLE_WRITE_INIT(s->store_ptr, &s->store_buf);
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_write_next(void *s_in,
+		void *key, uint32 key_size,
+		void *data, uint32 data_size)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	int32 status;
+
+	DB_MULTIPLE_KEY_WRITE_NEXT(s->store_ptr, 
+				&s->store_buf,
+				key, key_size,
+				data, data_size);
+
+	if (s->store_ptr == NULL) {
+
+		char db_name[LINE_BUF_SIZE];
+
+		/* entry doesn't fit, commit the batch and open a new DB */
+
+		status = s->write_db->sort_multiple(s->write_db, 
+					&s->store_buf,
+					NULL, DB_MULTIPLE_KEY);
+		if (status != 0) {
+			logprintf(s->obj, "DB bulk sort failed: %s\n",
+					db_strerror(status));
+			exit(-1);
+		}
+
+		status = s->write_db->put(s->write_db, 
+					NULL, &s->store_buf,
+					NULL, DB_MULTIPLE_KEY);
+		if (status != 0) {
+			logprintf(s->obj, "DB bulk write failed: %s\n",
+					db_strerror(status));
+			exit(-1);
+		}
+
+		DB_MULTIPLE_WRITE_INIT(s->store_ptr, &s->store_buf);
+
+		DB_MULTIPLE_KEY_WRITE_NEXT(s->store_ptr, 
+					&s->store_buf,
+					key, key_size,
+					data, data_size);
+
+		status = s->write_db->close(s->write_db, 0);
+		if (status != 0) {
+			logprintf(s->obj, "DB close failed: %s\n",
+					db_strerror(status));
+			exit(-1);
+		}
+
+		sprintf(db_name, "%s.%u", 
+				s->name_prefix, s->num_db++);
+
+		s->write_db = init_db_core(s->obj, s->env, db_name, 
+				DB_CREATE | DB_TRUNCATE | s->open_flags,
+				s->compare_fcn,
+				s->compress_fcn,
+				s->decompress_fcn);
+		if (s->write_db == NULL) {
+			printf("error opening new DB\n");
+			exit(-1);
+		}
+	}
+}
+
+/*--------------------------------------------------------------------*/
+void stream_db_write_close(void *s_in)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+	int32 status;
+
+	status = s->write_db->sort_multiple(s->write_db, 
+				&s->store_buf,
+				NULL, DB_MULTIPLE_KEY);
+	if (status != 0) {
+		logprintf(s->obj, "DB bulk sort failed: %s\n",
+				db_strerror(status));
+		exit(-1);
+	}
+
+	status = s->write_db->put(s->write_db, 
+				NULL, &s->store_buf,
+				NULL, DB_MULTIPLE_KEY);
+	if (status != 0) {
+		logprintf(s->obj, "DB bulk write failed: %s\n",
+				db_strerror(status));
+		exit(-1);
+	}
+
+	status = s->write_db->close(s->write_db, 0);
+	if (status != 0) {
+		logprintf(s->obj, "DB close failed: %s\n",
+				db_strerror(status));
+		exit(-1);
+	}
+
+	s->write_db = NULL;
+	free(s->store_buf.data);
+}
+
