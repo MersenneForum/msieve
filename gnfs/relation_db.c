@@ -276,7 +276,7 @@ static void make_heap(tmp_db_t **h, uint32 size,
 /*--------------------------------------------------------------------*/
 void stream_db_read_init(void *s_in,
 		uint32 db_flags,
-		size_t buffer_size,
+		uint64 buffer_size,
 		DBT **first_key, 
 		DBT **first_data)
 {
@@ -294,6 +294,7 @@ void stream_db_read_init(void *s_in,
 
 	buffer_size = buffer_size / num_db;
 	buffer_size = MAX(buffer_size, 1 << 20);
+	buffer_size = MIN(buffer_size, 0xe0000000);
 
 	for (i = 0; i < num_db; i++) {
 
@@ -450,10 +451,12 @@ void stream_db_read_close(void *s_in, uint32 delete_files)
 /*--------------------------------------------------------------------*/
 void stream_db_write_init(void *s_in,
 		uint32 db_flags,
-		size_t buffer_size)
+		uint64 buffer_size)
 {
 	stream_db_t *s = (stream_db_t *)s_in;
 	char db_name[LINE_BUF_SIZE];
+
+	buffer_size = MIN(buffer_size, 0xe0000000);
 
 	s->num_db = 0;
 	s->db_flags = db_flags;

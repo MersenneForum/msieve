@@ -60,7 +60,7 @@ uint32 stream_db_num_files(void *s);
 
 void stream_db_write_init(void *s,
 		uint32 db_flags,
-		size_t buffer_size);
+		uint64 buffer_size);
 
 void stream_db_write_next(void *s,
 		void *key, uint32 key_size,
@@ -72,7 +72,7 @@ void stream_db_write_close(void *s);
 
 void stream_db_read_init(void *s,
 		uint32 db_flags,
-		size_t buffer_size,
+		uint64 buffer_size,
 		DBT **first_key, 
 		DBT **first_data);
 
