@@ -32,7 +32,7 @@ extern "C" {
    that each is assigned */
 
 typedef struct {
-	uint32 rel_index;      /* savefile line number where relation occurs */
+	uint64 rel_index : 40; /* savefile line number where relation occurs */
 	uint8 ideal_count;     /* number of large ideals */
 	uint8 gf2_factors;     /* number of small factors that are ignored */
 	uint8 connected;       /* scratch space used in clique formation */

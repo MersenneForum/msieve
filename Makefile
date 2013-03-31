@@ -218,6 +218,7 @@ NFS_SRCS = \
 	gnfs/poly/stage2/stage2.c \
 	gnfs/filter/duplicate.c \
 	gnfs/filter/filter.c \
+	gnfs/filter/singleton.c \
 	gnfs/sieve/sieve_line.c \
 	gnfs/sieve/sieve_util.c \
 	gnfs/fb.c \

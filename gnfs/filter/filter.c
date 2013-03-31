@@ -28,8 +28,8 @@ static void find_fb_size(factor_base_t *fb,
 	   the filtering bounds */
 
 	if (limit_r > 20000000 && limit_a > 20000000) {
-		*entries_r_out = limit_r / (log((double)limit_r) - 1);
-		*entries_a_out = limit_a / (log((double)limit_a) - 1);
+		*entries_r_out = 1.02 * limit_r / (log((double)limit_r) - 1);
+		*entries_a_out = 1.02 * limit_a / (log((double)limit_a) - 1);
 		return;
 	}
 
@@ -108,7 +108,7 @@ static void dump_relation_numbers(msieve_obj *obj, filter_t *filter) {
 	}
 
 	for (i = 0; i < filter->num_relations; i++) {
-		fwrite(&r->rel_index, (size_t)1, sizeof(uint32), relation_fp);
+		fwrite(r, (size_t)1, sizeof(uint32), relation_fp);
 		r = next_relation_ptr(r);
 	}
 	fclose(relation_fp);
@@ -130,6 +130,8 @@ static void set_filtering_bounds(msieve_obj *obj, factor_base_t *fb,
 
 	*entries_r_out = entries_r;
 	*entries_a_out = entries_a;
+	logprintf(obj, "need %u more relations than ideals\n",
+			filter->target_excess);
 }
 
 /*--------------------------------------------------------------------*/
@@ -226,6 +228,7 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	uint64 num_relations;
 	uint64 max_relations = 0;
 	uint64 relations_needed = 0;
+	uint32 num_line_num_files;
 	factor_base_t fb;
 	time_t wall_time = time(NULL);
 	uint64 savefile_size = get_file_size(obj->savefile.name);
@@ -333,7 +336,11 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 
 	/* delete duplicate relations */
 
-	nfs_purge_duplicates(obj, &fb, ram_size, max_relations);
+	filtmin_r = filtmin_a = nfs_purge_duplicates(obj, ram_size, 
+					max_relations,
+					&num_line_num_files);
+	if (filter_bound != 0)
+		filtmin_r = filtmin_a = filter_bound;
 
 	/* set up the first disk-based pass; if the dataset is
 	   "small", this will be the only such pass */
@@ -344,9 +351,10 @@ uint32 nfs_filter_relations(msieve_obj *obj, mpz_t n) {
 	/* separate out the large ideals and delete singletons
 	   once they are all in memory. If the dataset is large,
 	   first delete most of the singletons from the disk file */
-#if 0
-	nfs_write_lp_file(obj, ram_size, &filter);
 
+	nfs_write_lp_file(obj, &fb, ram_size, 
+			num_line_num_files, &filter);
+#if 0
 	if (filter.lp_file_size > ram_size / 2) {
 		filter_purge_lp_singletons(obj, &filter, ram_size);
 #if 0

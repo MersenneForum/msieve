@@ -296,6 +296,13 @@ static INLINE uint32 compress_p(uint8 *array,
 	return offset;
 }
 
+static INLINE uint32 compress_one_p(uint8 *array, uint64 p) {
+
+	uint32 count = 0;
+
+	return compress_p(array, p, count);
+}
+
 static INLINE uint64 decompress_p(uint8 *array, uint32 *offset_in) {
 
 	uint32 offset = *offset_in;
@@ -311,6 +318,13 @@ static INLINE uint64 decompress_p(uint8 *array, uint32 *offset_in) {
 	
 	*offset_in = offset;
 	return p;
+}
+
+static INLINE uint64 decompress_one_p(uint8 *array) {
+
+	uint32 count = 0;
+
+	return decompress_p(array, &count);
 }
 
 /* canonical representation of a relation, used in

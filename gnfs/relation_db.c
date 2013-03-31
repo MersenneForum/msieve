@@ -38,7 +38,7 @@ typedef struct {
 	uint32 num_db;
 	uint32 curr_num_db;
 	uint32 curr_db;
-	uint32 open_flags;
+	uint32 db_flags;
 
 	DB * write_db;
 	DBT store_buf;
@@ -121,6 +121,7 @@ void free_filter_env(msieve_obj *obj, DB_ENV *env)
 static DB * init_db_core(msieve_obj *obj, 
 		DB_ENV *filter_env, char *name,
 		uint32 open_flags,
+		uint32 db_flags,
 		compare_cb compare_fcn,
 		compress_cb compress_fcn,
 		decompress_cb decompress_fcn)
@@ -142,14 +143,16 @@ static DB * init_db_core(msieve_obj *obj,
 		goto error_finished;
 	}
 
-	status = db->set_bt_compress(db, compress_fcn,
-				decompress_fcn);
-	if (status != 0) {
-		logprintf(obj, "DB set compress fcn failed: %s\n",
-				db_strerror(status));
-		goto error_finished;
+	if (compress_fcn != NULL && decompress_fcn != NULL) {
+		status = db->set_bt_compress(db, compress_fcn,
+					decompress_fcn);
+		if (status != 0) {
+			logprintf(obj, "DB set compress fcn failed: %s\n",
+					db_strerror(status));
+			goto error_finished;
+		}
 	}
-
+	
 	if (filter_env && (open_flags & DB_TRUNCATE)) {
 		/* strip out DB_TRUNCATE, environments do not allow it */
 		open_flags &= ~DB_TRUNCATE;
@@ -157,6 +160,15 @@ static DB * init_db_core(msieve_obj *obj,
 					NULL, name, NULL, 0);
 		if (status != 0 && status != ENOENT) {
 			logprintf(obj, "DB delete failed: %s\n",
+					db_strerror(status));
+			goto error_finished;
+		}
+	}
+
+	if (db_flags != 0) {
+		status = db->set_flags(db, db_flags);
+		if (status != 0) {
+			logprintf(obj, "DB set flags failed: %s\n",
 					db_strerror(status));
 			goto error_finished;
 		}
@@ -182,6 +194,7 @@ error_finished:
 /*--------------------------------------------------------------------*/
 void * stream_db_init(msieve_obj *obj, 
 			DB_ENV *filter_env, 
+			uint32 num_existing_files,
 			compare_cb compare,
 			compress_cb compress,
 			decompress_cb decompress,
@@ -196,6 +209,7 @@ void * stream_db_init(msieve_obj *obj,
 		s->compare_fcn = compare;
 		s->compress_fcn = compress;
 		s->decompress_fcn = decompress;
+		s->num_db = num_existing_files;
 	}
 	return s;
 }
@@ -207,6 +221,14 @@ void stream_db_free(void *s_in)
 
 	free(s->name_prefix);
 	free(s);
+}
+
+/*--------------------------------------------------------------------*/
+uint32 stream_db_num_files(void *s_in)
+{
+	stream_db_t *s = (stream_db_t *)s_in;
+
+	return s->num_db;
 }
 
 /*--------------------------------------------------------------------*/
@@ -253,7 +275,7 @@ static void make_heap(tmp_db_t **h, uint32 size,
 
 /*--------------------------------------------------------------------*/
 void stream_db_read_init(void *s_in,
-		uint32 open_flags,
+		uint32 db_flags,
 		size_t buffer_size,
 		DBT **first_key, 
 		DBT **first_data)
@@ -263,7 +285,10 @@ void stream_db_read_init(void *s_in,
 	int32 status;
 	uint32 i, j;
 
-	s->open_flags = open_flags;
+	if (num_db > 1)
+		logprintf(s->obj, "merging %u temporary databases\n", num_db);
+
+	s->db_flags = db_flags;
 	s->tmp_db = (tmp_db_t *)xcalloc(num_db, sizeof(tmp_db_t));
 	s->tmp_db_ptr = (tmp_db_t **)xcalloc(num_db, sizeof(tmp_db_t *));
 
@@ -277,7 +302,7 @@ void stream_db_read_init(void *s_in,
 
 		sprintf(db_name, "%s.%u", s->name_prefix, i);
 		t->read_db = init_db_core(s->obj, s->env, db_name, 
-					DB_RDONLY | s->open_flags,
+					DB_RDONLY, s->db_flags,
 					s->compare_fcn,
 					s->compress_fcn,
 					s->decompress_fcn);
@@ -345,7 +370,7 @@ void stream_db_read_next(void *s_in,
 	int32 status;
 	uint32 i = s->curr_db;
 	uint32 j = s->curr_num_db;
-	tmp_db_t *t = s->tmp_db_ptr[i];
+	tmp_db_t *t;
 
 	if (j == i) {
 		*next_key = NULL;
@@ -353,6 +378,7 @@ void stream_db_read_next(void *s_in,
 		return;
 	}
 
+	t = s->tmp_db_ptr[i];
 	DB_MULTIPLE_KEY_NEXT(t->read_ptr, &t->read_data,
 				t->curr_key.data,
 				t->curr_key.size,
@@ -396,7 +422,7 @@ void stream_db_read_next(void *s_in,
 }
 
 /*--------------------------------------------------------------------*/
-void stream_db_read_close(void *s_in)
+void stream_db_read_close(void *s_in, uint32 delete_files)
 {
 	stream_db_t *s = (stream_db_t *)s_in;
 	uint32 i;
@@ -404,15 +430,18 @@ void stream_db_read_close(void *s_in)
 	for (i = 0; i < s->num_db; i++) {
 
 		tmp_db_t *t = s->tmp_db + i;
-		char db_name[LINE_BUF_SIZE];
 
 		free(t->read_data.data);
 
 		t->read_curs->close(t->read_curs);
 		t->read_db->close(t->read_db, 0);
 
-		sprintf(db_name, "%s.%u", s->name_prefix, i);
-		remove(db_name);
+		if (delete_files) {
+			char db_name[LINE_BUF_SIZE];
+
+			sprintf(db_name, "%s.%u", s->name_prefix, i);
+			remove(db_name);
+		}
 	}
 	free(s->tmp_db);
 	free(s->tmp_db_ptr);
@@ -420,18 +449,18 @@ void stream_db_read_close(void *s_in)
 
 /*--------------------------------------------------------------------*/
 void stream_db_write_init(void *s_in,
-		uint32 open_flags,
+		uint32 db_flags,
 		size_t buffer_size)
 {
 	stream_db_t *s = (stream_db_t *)s_in;
 	char db_name[LINE_BUF_SIZE];
 
 	s->num_db = 0;
-	s->open_flags = open_flags;
+	s->db_flags = db_flags;
 	sprintf(db_name, "%s.%u", s->name_prefix, s->num_db++);
 
 	s->write_db = init_db_core(s->obj, s->env, db_name, 
-				DB_CREATE | DB_TRUNCATE | s->open_flags,
+				DB_CREATE | DB_TRUNCATE, s->db_flags,
 				s->compare_fcn,
 				s->compress_fcn,
 				s->decompress_fcn);
@@ -502,7 +531,7 @@ void stream_db_write_next(void *s_in,
 				s->name_prefix, s->num_db++);
 
 		s->write_db = init_db_core(s->obj, s->env, db_name, 
-				DB_CREATE | DB_TRUNCATE | s->open_flags,
+				DB_CREATE | DB_TRUNCATE, s->db_flags,
 				s->compare_fcn,
 				s->compress_fcn,
 				s->decompress_fcn);
