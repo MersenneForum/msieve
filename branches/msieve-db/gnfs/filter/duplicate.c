@@ -135,7 +135,7 @@ static int decompress_relation(DB *db,
 	if (a_neg)
 		a2 = -a2;
 
-	unpack_relation((uint8 *)prev_key->data, (uint64 *)&a1, &b2);
+	unpack_relation((uint8 *)prev_key->data, (int64 *)&a1, &b2);
 	if (!b_diff_zero)
 		b2 += (uint32)decompress_p((uint8 *)compressed->data, &count);
 
@@ -225,8 +225,6 @@ purge_pass2(msieve_obj *obj,
 {
 	char db_name[LINE_BUF_SIZE];
 	uint64 num_relations;
-	size_t read_batch_size;
-	size_t write_batch_size;
 	void *write_stream;
 	DBT *read_key;
 	DBT *read_data;
@@ -236,12 +234,6 @@ purge_pass2(msieve_obj *obj,
 	logprintf(obj, "commencing duplicate removal, pass 2\n");
 
 	sprintf(db_name, "%s.filter/tmpi", obj->savefile.name);
-
-	if (0.5 * mem_size > 0xc0000000)
-		read_batch_size = 0xc0000000;
-	else
-		read_batch_size = 0.5 * mem_size;
-	write_batch_size = read_batch_size;
 
 	write_stream = stream_db_init(obj, NULL, 0,
 				compare_relnums,
@@ -253,10 +245,10 @@ purge_pass2(msieve_obj *obj,
 		exit(-1);
 	}
 
-	stream_db_write_init(write_stream, 0, write_batch_size);
+	stream_db_write_init(write_stream, 0, 0.5 * mem_size);
 
 	stream_db_read_init(pass1_stream, 0,
-				read_batch_size,
+				0.5 * mem_size,
 				&read_key, &read_data);
 	num_relations = 0;
 	while (read_key != NULL && read_data != NULL) {
@@ -280,7 +272,7 @@ purge_pass2(msieve_obj *obj,
 	stream_db_write_close(write_stream);
 	stream_db_read_close(pass1_stream, 1);
 
-	logprintf(obj, "wrote %" PRIu64 " duplicates and %"
+	logprintf(obj, "found %" PRIu64 " duplicates and %"
 			PRIu64 " unique relations\n", 
 			num_relations_in - num_relations, 
 			num_relations);
@@ -305,7 +297,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, uint64 mem_size,
 	char db_name[LINE_BUF_SIZE];
 	uint64 curr_relation;
 	uint64 num_relations;
-	size_t batch_size;
 	void *write_stream;
 
 	uint32 *prime_bins;
@@ -314,13 +305,6 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, uint64 mem_size,
 	logprintf(obj, "commencing duplicate removal, pass 1\n");
 
 	savefile_open(savefile, SAVEFILE_READ);
-
-	/* upper limit of 3GB for bulk writes */
-
-	if (mem_size > 0xc0000000)
-		batch_size = 0xc0000000;
-	else
-		batch_size = mem_size;
 
 	/* pass 1: break up the input dataset into temporary
 	   databases, each about the size of the DB cache and
@@ -341,7 +325,7 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, uint64 mem_size,
 	num_relations = 0;
 	curr_relation = 0;
 	savefile_read_line(buf, sizeof(buf), savefile);
-	stream_db_write_init(write_stream, 0, batch_size);
+	stream_db_write_init(write_stream, 0, mem_size);
 
 	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
 					sizeof(uint32));
@@ -447,10 +431,10 @@ uint32 nfs_purge_duplicates(msieve_obj *obj, uint64 mem_size,
 
 	i = 1 << (32 - LOG2_BIN_SIZE);
 	bin_max = (double)BIN_SIZE * i /
-			log((double)BIN_SIZE * i);
+			(log((double)BIN_SIZE * i) - 1);
 	for (i--; i > 2; i--) {
 		double bin_min = (double)BIN_SIZE * i /
-				log((double)BIN_SIZE * i);
+				(log((double)BIN_SIZE * i) - 1);
 		double hits_per_prime = (double)prime_bins[i] /
 						(bin_max - bin_min);
 		if (hits_per_prime > TARGET_HITS_PER_PRIME)
