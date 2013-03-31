@@ -14,7 +14,34 @@ $Id$
 
 #include "filter.h"
 
-#define AB_KEY_SIZE (sizeof(int64) + sizeof(uint32))
+/*--------------------------------------------------------------------*/
+static uint32 pack_relation(uint8 *array, int64 a, uint32 b)
+{
+	uint32 a_neg = 0;
+	uint32 count = 0;
+
+	if (a < 0) {
+		a_neg = 1;
+		a = -a;
+	}
+	count = compress_p(array, a << 1 | a_neg, count);
+	count = compress_p(array, b, count);
+	return count;
+}
+
+static void unpack_relation(uint8 *array, 
+			int64 *a_out, uint32 *b_out)
+{
+	uint32 count = 0;
+	int64 a = decompress_p(array, &count);
+	uint32 b = decompress_p(array, &count);
+
+	if (a & 1)
+		a = -a;
+
+	*a_out = a >> 1;
+	*b_out = b;
+}
 
 /*--------------------------------------------------------------------*/
 int compare_relations(DB *db, const DBT *rel1,
@@ -23,10 +50,8 @@ int compare_relations(DB *db, const DBT *rel1,
 	int64 a1, a2;
 	uint32 b1, b2;
 
-	memcpy(&a1, rel1->data, sizeof(int64));
-	memcpy(&b1, (uint8 *)rel1->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, rel2->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)rel2->data + sizeof(int64), sizeof(uint32));
+	unpack_relation((uint8 *)rel1->data, &a1, &b1);
+	unpack_relation((uint8 *)rel2->data, &a2, &b2);
 
 	if (b1 > b2)
 		return 1;
@@ -47,16 +72,15 @@ static int compress_relation(DB *db,
 			const DBT *key, const DBT *data, 
 			DBT *dest)
 {
-	int64 a2;
+	int64 a1, a2;
 	uint32 b1, b2;
 	uint32 count = 0;
 	uint8 a_neg = 0;
 	uint8 b_diff_zero = 0;
 	uint8 tmp[24];
 
-	memcpy(&b1, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
-	memcpy(&a2, key->data, sizeof(int64));
-	memcpy(&b2, (uint8 *)key->data + sizeof(int64), sizeof(uint32));
+	unpack_relation((uint8 *)prev_key->data, &a1, &b1);
+	unpack_relation((uint8 *)key->data, &a2, &b2);
 
 	if (a2 < 0) {
 		a_neg = 2;
@@ -96,12 +120,13 @@ static int decompress_relation(DB *db,
 		DBT *compressed, 
 		DBT *key, DBT *data)
 {
-	uint64 a2;
-	uint32 b1, b2;
+	uint64 a1, a2;
+	uint32 b2;
 	uint32 b_diff_zero;
 	uint32 a_neg;
 	uint32 count = 0;
 	uint32 data_size;
+	uint8 tmp[24];
 
 	a2 = decompress_p((uint8 *)compressed->data, &count);
 	a_neg = a2 & 2;
@@ -110,20 +135,19 @@ static int decompress_relation(DB *db,
 	if (a_neg)
 		a2 = -a2;
 
-	memcpy(&b2, (uint8 *)prev_key->data + sizeof(int64), sizeof(uint32));
+	unpack_relation((uint8 *)prev_key->data, (uint64 *)&a1, &b2);
 	if (!b_diff_zero)
 		b2 += (uint32)decompress_p((uint8 *)compressed->data, &count);
 
 	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
 
-	key->size = AB_KEY_SIZE;
+	key->size = pack_relation(tmp, a2, b2);
 	data->size = data_size;
 	if (key->ulen < key->size || data->ulen < data->size)
 		return DB_BUFFER_SMALL;
 
 	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
-	memcpy(key->data, &a2, sizeof(uint64));
-	memcpy((uint8 *)key->data + sizeof(uint64), &b2, sizeof(uint32));
+	memcpy(key->data, tmp, key->size);
 
 	/* the BDB docs only show this in an example and not in the
 	   API reference, but the compressed buffer needs to know
@@ -137,10 +161,8 @@ static int decompress_relation(DB *db,
 int compare_relnums(DB *db, const DBT *rel1,
 			const DBT *rel2)
 {
-	uint64 i1, i2;
-
-	memcpy(&i1, rel1->data, sizeof(int64));
-	memcpy(&i2, rel2->data, sizeof(int64));
+	uint64 i1 = decompress_one_p((uint8 *)rel1->data);
+	uint64 i2 = decompress_one_p((uint8 *)rel2->data);
 
 	if (i1 > i2)
 		return 1;
@@ -151,19 +173,15 @@ int compare_relnums(DB *db, const DBT *rel1,
 }
 
 /*--------------------------------------------------------------------*/
-static int compress_relnum(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest)
+int compress_relnum(DB *db, 
+		const DBT *prev_key, const DBT *prev_data, 
+		const DBT *key, const DBT *data, 
+		DBT *dest)
 {
-	uint64 i1, i2;
-	uint32 count = 0;
 	uint8 tmp[24];
-
-	memcpy(&i1, (uint8 *)prev_key->data, sizeof(uint64));
-	memcpy(&i2, (uint8 *)key->data, sizeof(uint64));
-
-	count = compress_p(tmp, i2 - i1, count);
+	uint64 i1 = decompress_one_p((uint8 *)prev_key->data);
+	uint64 i2 = decompress_one_p((uint8 *)key->data);
+	uint32 count = compress_one_p(tmp, i2 - i1);
 
 	dest->size = count;
 	if (dest->ulen < dest->size)
@@ -174,131 +192,26 @@ static int compress_relnum(DB *db,
 }
 
 /*--------------------------------------------------------------------*/
-static int decompress_relnum(DB *db, 
+int decompress_relnum(DB *db, 
 		const DBT *prev_key, const DBT *prev_data, 
 		DBT *compressed, 
 		DBT *key, DBT *data)
 {
-	uint64 i2;
-	uint32 count = 0;
+	uint32 count;
+	uint32 c_count = 0;
+	uint8 tmp[24];
+	uint64 i2 = decompress_one_p((uint8 *)prev_key->data);
 
-	memcpy(&i2, (uint8 *)prev_key->data, sizeof(uint64));
-	i2 += decompress_p((uint8 *)compressed->data, &count);
+	i2 += decompress_p((uint8 *)compressed->data, &c_count);
+	count = compress_one_p(tmp, i2);
 
-	key->size = sizeof(uint64);
+	key->size = count;
 	data->size = 0;
 	if (key->ulen < key->size || data->ulen < data->size)
 		return DB_BUFFER_SMALL;
 
-	memcpy(key->data, &i2, sizeof(uint64));
-	compressed->size = count;
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int compare_ideals(DB *db, const DBT *i1,
-			const DBT *i2)
-{
-	/* Ordering is by prime, then by root of prime,
-	   then by rational or algebraic type. This ordering
-	   is designed to put the smallest ideals first */
-
-	ideal_t a, b;
-
-	memcpy(&a, i1->data, sizeof(ideal_t));
-	memcpy(&b, i2->data, sizeof(ideal_t));
-
-	if (a.p < b.p)
-		return -1;
-	if (a.p > b.p)
-		return 1;
-		
-	if (a.r < b.r)
-		return -1;
-	if (a.r > b.r)
-		return 1;
-
-	if (a.rat_or_alg < b.rat_or_alg)
-		return -1;
-	if (a.rat_or_alg > b.rat_or_alg)
-		return 1;
-		
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int compress_ideal(DB *db, 
-			const DBT *prev_key, const DBT *prev_data, 
-			const DBT *key, const DBT *data, 
-			DBT *dest)
-{
-	ideal_t i1, i2;
-	uint64 p1, p2;
-	uint64 r2;
-	uint32 count = 0;
-	uint8 p_diff_zero = 0;
-	uint8 tmp[24];
-
-	memcpy(&i1, prev_key->data, sizeof(ideal_t));
-	memcpy(&i2, key->data, sizeof(ideal_t));
-
-	p1 = i1.p;
-	p2 = i2.p;
-	r2 = i2.r;
-
-	if (p1 == p2)
-		p_diff_zero = 1;
-
-	count = compress_p(tmp, 
-			r2 << 2 | i2.rat_or_alg << 1 | p_diff_zero, 
-			count);
-
-	if (!p_diff_zero)
-		count = compress_p(tmp, p2 - p1, count);
-
-	count = compress_p(tmp, data->size, count);
-
-	dest->size = count + data->size;
-	if (dest->ulen < dest->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(dest->data, tmp, count);
-	memcpy((uint8 *)dest->data + count, data->data, data->size);
-	return 0;
-}
-
-/*--------------------------------------------------------------------*/
-static int decompress_ideal(DB *db, 
-		const DBT *prev_key, const DBT *prev_data, 
-		DBT *compressed, 
-		DBT *key, DBT *data)
-{
-	ideal_t i1, i2;
-	uint64 r2;
-	uint8 p_diff_zero;
-	uint32 count = 0;
-	uint32 data_size;
-
-	r2 = decompress_p((uint8 *)compressed->data, &count);
-	p_diff_zero = r2 & 1;
-	i2.rat_or_alg = (r2 >> 1) & 1;
-	i2.r = r2 >> 2;
-
-	memcpy(&i1, prev_key->data, sizeof(ideal_t));
-	i2.p = i1.p;
-	if (!p_diff_zero)
-		i2.p += decompress_p((uint8 *)compressed->data, &count);
-
-	data_size = (uint32)decompress_p((uint8 *)compressed->data, &count);
-
-	key->size = sizeof(ideal_t);
-	data->size = data_size;
-	if (key->ulen < key->size || data->ulen < data->size)
-		return DB_BUFFER_SMALL;
-
-	memcpy(data->data, (uint8 *)compressed->data + count, data_size);
-	memcpy(key->data, &i2, sizeof(ideal_t));
-	compressed->size = count + data_size;
+	memcpy(key->data, tmp, count);
+	compressed->size = c_count;
 	return 0;
 }
 
@@ -307,7 +220,8 @@ static void
 purge_pass2(msieve_obj *obj,
 		void *pass1_stream,
 		size_t mem_size,
-		uint64 num_relations_in)
+		uint64 num_relations_in,
+		uint32 * num_line_num_files)
 {
 	char db_name[LINE_BUF_SIZE];
 	uint64 num_relations;
@@ -316,19 +230,20 @@ purge_pass2(msieve_obj *obj,
 	void *write_stream;
 	DBT *read_key;
 	DBT *read_data;
-	uint8 prev_key[AB_KEY_SIZE] = {0};
+	uint8 prev_key[24] = {0};
+	uint32 prev_key_size = 0;
 
 	logprintf(obj, "commencing duplicate removal, pass 2\n");
 
 	sprintf(db_name, "%s.filter/tmpi", obj->savefile.name);
 
-	if (.5 * mem_size > 0xc0000000)
+	if (0.5 * mem_size > 0xc0000000)
 		read_batch_size = 0xc0000000;
 	else
 		read_batch_size = 0.5 * mem_size;
 	write_batch_size = read_batch_size;
 
-	write_stream = stream_db_init(obj, NULL, 
+	write_stream = stream_db_init(obj, NULL, 0,
 				compare_relnums,
 				compress_relnum,
 				decompress_relnum,
@@ -346,18 +261,15 @@ purge_pass2(msieve_obj *obj,
 	num_relations = 0;
 	while (read_key != NULL && read_data != NULL) {
 
-		if (memcmp(read_key->data, prev_key, AB_KEY_SIZE) != 0) {
-
-			uint64 relnum;
-			uint32 count = 0;
-
-			relnum = decompress_p(read_data->data, &count);
+		if (prev_key_size != read_key->size ||
+		    memcmp(prev_key, read_key->data, read_key->size) != 0) {
 
 			stream_db_write_next(write_stream,
-					&relnum, sizeof(uint64),
+					read_data->data, read_data->size,
 					NULL, 0);
 
-			memcpy(prev_key, read_key->data, AB_KEY_SIZE);
+			memcpy(prev_key, read_key->data, read_key->size);
+			prev_key_size = read_key->size;
 			num_relations++;
 		}
 
@@ -366,22 +278,28 @@ purge_pass2(msieve_obj *obj,
 	}
 
 	stream_db_write_close(write_stream);
-	stream_db_read_close(pass1_stream);
+	stream_db_read_close(pass1_stream, 1);
 
 	logprintf(obj, "wrote %" PRIu64 " duplicates and %"
 			PRIu64 " unique relations\n", 
 			num_relations_in - num_relations, 
 			num_relations);
 
+	*num_line_num_files = stream_db_num_files(write_stream);
 	stream_db_free(write_stream);
 }
 
 /*--------------------------------------------------------------------*/
-void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
-				uint64 mem_size,
-				uint64 max_relations)
+#define LOG2_BIN_SIZE 17
+#define BIN_SIZE (1 << (LOG2_BIN_SIZE))
+#define TARGET_HITS_PER_PRIME 40.0
+
+uint32 nfs_purge_duplicates(msieve_obj *obj, uint64 mem_size,
+				uint64 max_relations,
+				uint32 *num_line_num_files)
 {
 
+	uint32 i;
 	savefile_t *savefile = &obj->savefile;
 	char buf[LINE_BUF_SIZE];
 	char db_name[LINE_BUF_SIZE];
@@ -389,6 +307,9 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	uint64 num_relations;
 	size_t batch_size;
 	void *write_stream;
+
+	uint32 *prime_bins;
+	double bin_max;
 
 	logprintf(obj, "commencing duplicate removal, pass 1\n");
 
@@ -407,7 +328,7 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	sprintf(db_name, "%s.filter/tmprel", savefile->name);
 
-	write_stream = stream_db_init(obj, NULL, 
+	write_stream = stream_db_init(obj, NULL, 0,
 				compare_relations,
 				compress_relation,
 				decompress_relation,
@@ -422,11 +343,15 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 	savefile_read_line(buf, sizeof(buf), savefile);
 	stream_db_write_init(write_stream, 0, batch_size);
 
+	prime_bins = (uint32 *)xcalloc((size_t)1 << (32 - LOG2_BIN_SIZE),
+					sizeof(uint32));
+
 	while (!savefile_eof(savefile)) {
 
-		uint8 db_key[AB_KEY_SIZE];
-		uint8 db_data[12];
-		uint32 relnum_count = 0;
+		uint8 db_key[24];
+		uint8 db_data[24];
+		uint32 ab_count;
+		uint32 relnum_count;
 		char *ptr;
 		int64 a;
 		uint32 b;
@@ -468,13 +393,28 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 		/* relation coords are good; queue for DB write */
 
 		num_relations++;
-		relnum_count = compress_p(db_data, curr_relation, relnum_count);
-		memcpy(db_key, &a, sizeof(int64));
-		memcpy(db_key + sizeof(int64), &b, sizeof(uint32));
+		ab_count = pack_relation(db_key, a, b);
+		relnum_count = compress_one_p(db_data, curr_relation);
 
 		stream_db_write_next(write_stream,
-				db_key, AB_KEY_SIZE,
+				db_key, ab_count,
 				db_data, relnum_count);
+
+		/* parse all the factors < 2^32 that the relation 
+		   contains and keep a histogram of their counts. 
+		   Note that we have no idea whether the relation
+		   is a duplicate or even whether the factors are
+		   valid, but it doesn't really matter for our
+		   purposes */
+
+		while (ptr[0] == ':' || ptr[0] == ',') {
+			uint64 p = strtoull(ptr + 1, &ptr, 16);
+
+			if (p >= ((uint64)1 << 32))
+				continue;
+
+			prime_bins[p / BIN_SIZE]++;
+		}
 
 		/* get the next line */
 
@@ -490,7 +430,34 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
 
 	logprintf(obj, "found %" PRIu64 " relations\n", num_relations);
 
-	purge_pass2(obj, write_stream, mem_size, num_relations);
+	purge_pass2(obj, write_stream, mem_size, 
+			num_relations, num_line_num_files);
 
 	stream_db_free(write_stream);
+
+	/* the large prime cutoff for the rest of the filtering
+	   process should be chosen here. We don't want the bound
+	   to depend on an arbitrarily chosen factor base, since
+	   that bound may be too large or much too small. The former
+	   would make filtering take too long, and the latter 
+	   could make filtering impossible.
+
+	   Conceptually, we want the bound to be the point below
+	   which large primes appear too often in the dataset. */
+
+	i = 1 << (32 - LOG2_BIN_SIZE);
+	bin_max = (double)BIN_SIZE * i /
+			log((double)BIN_SIZE * i);
+	for (i--; i > 2; i--) {
+		double bin_min = (double)BIN_SIZE * i /
+				log((double)BIN_SIZE * i);
+		double hits_per_prime = (double)prime_bins[i] /
+						(bin_max - bin_min);
+		if (hits_per_prime > TARGET_HITS_PER_PRIME)
+			break;
+		bin_max = bin_min;
+	}
+
+	free(prime_bins);
+	return BIN_SIZE * (i + 0.5);
 }

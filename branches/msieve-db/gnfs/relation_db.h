@@ -46,6 +46,7 @@ typedef int (*decompress_cb)(DB *db,
 
 void * stream_db_init(msieve_obj *obj, 
 			DB_ENV *filter_env, 
+			uint32 num_existing_files,
 			compare_cb compare,
 			compress_cb compress,
 			decompress_cb decompress,
@@ -53,10 +54,12 @@ void * stream_db_init(msieve_obj *obj,
 
 void stream_db_free(void *s);
 
+uint32 stream_db_num_files(void *s);
+
 /* batch write interface */
 
 void stream_db_write_init(void *s,
-		uint32 open_flags,
+		uint32 db_flags,
 		size_t buffer_size);
 
 void stream_db_write_next(void *s,
@@ -68,7 +71,7 @@ void stream_db_write_close(void *s);
 /* batch read interface */
 
 void stream_db_read_init(void *s,
-		uint32 open_flags,
+		uint32 db_flags,
 		size_t buffer_size,
 		DBT **first_key, 
 		DBT **first_data);
@@ -77,7 +80,7 @@ void stream_db_read_next(void *s,
 		DBT **next_key, 
 		DBT **next_data);
 
-void stream_db_read_close(void *s);
+void stream_db_read_close(void *s, uint32 delete_files);
 
 #ifdef __cplusplus
 }

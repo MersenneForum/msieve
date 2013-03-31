@@ -24,15 +24,30 @@ $Id$
 extern "C" {
 #endif
 
-/* create '<savefile_name>.d', a binary file containing
-   the line numbers of duplicated or corrupted relations.
-   Duplicate removal only applies to the first max_relations
-   relations found (or all relations if zero). The return
-   value is the large prime bound to use for the singleton removal */
+int compare_relnums(DB *db, const DBT *rel1,
+			const DBT *rel2);
 
-void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
+int compress_relnum(DB *db, 
+		const DBT *prev_key, const DBT *prev_data, 
+		const DBT *key, const DBT *data, 
+		DBT *dest);
+
+int decompress_relnum(DB *db, 
+		const DBT *prev_key, const DBT *prev_data, 
+		DBT *compressed, 
+		DBT *key, DBT *data);
+
+/* create a set of databases containing the line numbers of unique 
+   relations. Duplicate removal only applies to the first max_relations 
+   relations found (or all relations if zero). The number of files
+   containing line numbers is returned. Relations only have cursory
+   checks applied, the singleton removal does full verification.
+   The return value is the automatically computed filtering bound */
+
+uint32 nfs_purge_duplicates(msieve_obj *obj,
 				uint64 mem_size,
-				uint64 max_relations);
+				uint64 max_relations,
+				uint32 *num_line_num_files);
 
 /* read '<savefile_name>.d' and create '<savefile_name>.lp', a 
    binary file containing the relations surviving the singleton
@@ -40,8 +55,9 @@ void nfs_purge_duplicates(msieve_obj *obj, factor_base_t *fb,
    relation numbers to skip; otherwise it contains relation numbers
    to keep */
    
-void nfs_write_lp_file(msieve_obj *obj, 
+void nfs_write_lp_file(msieve_obj *obj, factor_base_t *fb,
 			uint64 mem_size,
+			uint32 num_line_num_files,
 			filter_t *filter);
 
 #ifdef __cplusplus
