@@ -9,7 +9,9 @@ void
 	write_num(int *a, char *str),
 	add(int *a, int *b, int *c),
 	get_logs(int *a, int b, unsigned char *c, int d),
-	output_relation(int i1, int i2, int a3, int a4, int s, int a, int b),
+	output_relation(int *int_LP1, int *int_LP2, int *int_LP3, 
+			 int *alg_LP1, int *alg_LP2, int *alg_LP3,
+			 int sign, int a, int b),
 	dump_params(int a, char *b, char *c),
 	find_start_points(),
 	siever(int i, int s),
@@ -21,7 +23,6 @@ void
 	gcd(int a, int b),
 	divv(int *a, int *b, int *q, int *r),
 	mpcopy(int *a, int *b),
-	trial_int_div(int *n, int s, int *r1, int *r2, int l, int c),
 	sieve_scanner(int s),
 	mpower(int *b, int *n, int *m, int *t),
 	mpctoi(char *s, int *n),
@@ -60,7 +61,8 @@ void
     update_range_file(int q_value, int current_q);
  
 int
-	trial_alg_div(int *n, int s, int *r, int l, int c),
+	trial_int_div(int *n, int s, int *int_LP1, int *int_LP2, int *int_LP3, int l, int c),
+	trial_alg_div(int *n, int s, int *alg_LP1, int *alg_LP2, int *alg_LP3, int l, int c),
 	get_ascii_fbase(),
 	alg_norm(int a, int b, int *n),
 	mpcmp(int *a, int *b),
@@ -71,8 +73,6 @@ int
 	ptest(int *n),
 	fast_ptest(int *n),
 	relprime(int a, int b),
-	squfof(int *n, int *r1, int *r2),
-	small_qs(int *n, int *r1, int *r2),
 	mod_mult_asm(int a, int b, int c),
 	pollardrho2(int *n, int *f1, int *f2),
 	reduce_lattice(int a, int b, int *v1, int *v2),
@@ -83,6 +83,7 @@ int
 	alg_hash(int c, int d),
 	show_hash(int b),
 	reject_this_q(),
+	cofactorize(int *number, int *LP1, int *LP2, int *LP3),
 	show_areas(),
 	show_int_vector(),
 	show_alg_vector();
