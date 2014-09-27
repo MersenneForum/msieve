@@ -169,9 +169,9 @@ int	int_bad,								/* int side squfof too big	*/
 	int_cofactor,							/* comp cofactor too big	*/
 	alg_cofactor,							/* ditto for rhs			*/
 	total_hits,								/* count number of hits		*/
-	squfof_fail,							/* squfof statistics		*/
+	cofac_fail,							/* squfof statistics		*/
 	overflow_count,
-	squfof_calls,
+	cofac_calls,
     badsplit,
 	rho_calls,
 	relation_count,
@@ -199,7 +199,7 @@ double vector_setup_time,					/* timing totals			*/
 	   trial_alg_time,
 	   find_startpt_time,
 	   alg_scan_time,
-	   squfof_time,
+	   cofac_time,
 	   latred_time,
 	   find_success_time,
 	   global_time,

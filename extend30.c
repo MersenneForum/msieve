@@ -138,6 +138,13 @@ Finish red-doing latred
 static int gwcount = 0;    //GW
 static int gwcount2 = 0;   //GW
 
+#ifdef _MSC_VER
+typedef unsigned __int64 ullong;
+#else
+typedef unsigned long long ullong;
+#endif
+
+
 /*      #include <sys/times.h>  (Unix only)  or calls to get_rusage           */
 
 #define   FACTOR_BASE_ASCII    "ASCII_BASE"
@@ -164,8 +171,8 @@ static int gwcount2 = 0;   //GW
 
 #define   Q_OVERFLOW         0            /* count squfof queue failures      */
 #define   RHO_TALLY          0            /* count calls to Pollard Rho       */
-#define   SQUFOF             0            /* count calls to squfof            */
-#define   SQUFOF_FAIL        0            /* count when squfof fails          */
+#define   COFAC              0            /* count calls to cofactorization   */
+#define   COFAC_FAIL         0            /* count when cofactorization fails */
 #define   SPLITCHECK         0            /* if 1 small 1 big <- squfof       */
 
 #define   HIT_COUNT          0            /* count sieving successes          */
@@ -240,7 +247,6 @@ int big_special_q[100000], big_roots[100000];
 /************************************************************************/
 
 
-
 /************************************************************************/
 /*                                                                      */
 /*                  M A I N                                             */ 
@@ -281,10 +287,10 @@ alg_prime = 0;
 int_cofactor =   0;
 alg_cofactor =   0;
 total_hits =     0;
-squfof_fail =    0;
+cofac_fail =    0;
 overflow_count = 0;
 rho_calls =      0;
-squfof_calls =   0;
+cofac_calls =   0;
 totq =  0;
 
 /*   WINDOZE requires this crazy call  WSAStartup before gethostname  */
@@ -542,9 +548,8 @@ for (q=starting_q; q<=ending_q; q++)   /* Let's do it; loop over q's   */
       (void) printf("Relations found: %d\n",relation_count);
       }
    if (RHO_TALLY)   (void) printf("calls to rho = %d\n",rho_calls);
-   if (Q_OVERFLOW)  (void) printf("squfof overflows = %d\n",overflow_count);
-   if (SQUFOF_FAIL) (void) printf("squfof failures = %d\n",squfof_fail);
-   if (SQUFOF)        (void) printf("squfof calls = %d\n",squfof_calls);
+   if (COFAC_FAIL) (void) printf("cofactorize failures = %d\n",cofac_fail);
+   if (COFAC)        (void) printf("cofactorize calls = %d\n",cofac_calls);
    if (TIME_STATS)
       {
       (void) printf("======================================================\n");
@@ -567,7 +572,7 @@ for (q=starting_q; q<=ending_q; q++)   /* Let's do it; loop over q's   */
       (void) printf("Find startpts time: %lf\n",find_startpt_time/(clockrate*1000.0));
       (void) printf("Alg scan time: %lf\n",alg_scan_time/(clockrate*1000.0));
       (void) printf("Lattice reduce time: %lf\n",latred_time/(clockrate*1000.0));
-      (void) printf("QS/Squfof time: %lf\n",squfof_time/(clockrate*1000.0));
+      (void) printf("cofactorize time: %lf\n",cofac_time/(clockrate*1000.0));
       (void) printf("Prepare regions time: %lf\n", vector_setup_time/(clockrate*1000.));
       (void) printf("Inverse time = %lf\n",invtime/(clockrate*1000.0));
       (void) printf("Prime Test time = %lf\n",total_ptime/(clockrate*1000.0));
@@ -620,8 +625,12 @@ int sign;
  
 {   /* start of sieve_scanner */
 register int i;
+int alg_success, int_success;
 int alg_number[MPDIM], int_number[MPDIM];
-int intrem1,intrem2,alg_rem,loc,alg_rem2,c,d, column;
+int alg_LP1[MPDIM], int_LP1[MPDIM];
+int alg_LP2[MPDIM], int_LP2[MPDIM];
+int alg_LP3[MPDIM], int_LP3[MPDIM];
+int loc,c,d,column;
 double stime;
 
 if (DEBUG) { (void) printf("In main sieve scanner\n"); } 
@@ -669,10 +678,11 @@ for (i=0; i<num_total_success; i++)
       (void) fflush(stdout);
       }
    if (TIME_STATS) stime = get_time();
-   alg_rem = trial_alg_div(alg_number,sign,&alg_rem2,loc,column);
+   alg_success = trial_alg_div(alg_number,sign,alg_LP1,alg_LP2,alg_LP3,loc,column);
    if (TIME_STATS) trial_alg_time += (get_time() - stime);
 
-   if (alg_rem < BPRIME_LIMIT && alg_rem2 < BPRIME_LIMIT)
+   int_success = 0;
+   if (alg_success)
                                       /* If algebraic side factored     */
       {                               /* try to factor integer side     */
       int_norm(d,c,int_number);       /* compute norm of a+b M          */
@@ -683,30 +693,15 @@ for (i=0; i<num_total_success; i++)
         (void) fflush(stdout);
         }
       if (TIME_STATS) stime = get_time(); 
-      trial_int_div(int_number,sign,&intrem1,&intrem2,loc,column);
+      int_success = trial_int_div(int_number,sign,int_LP1,int_LP2,int_LP3,loc,column);
       if (TIME_STATS) trial_int_time += (get_time() - stime); 
       }
  
-/*      Check that the large primes (if any) are not too big            */
-
-   if (SHOW_LARGE_PRIMES)
+   if (int_success)
       {
-      (void) printf("Large primes = %d %d %d %d\n",intrem1,intrem2,alg_rem,alg_rem2);
-      fflush(stdout);
+      relation_count++; 
+      output_relation(int_LP1,int_LP2,int_LP3,alg_LP1,alg_LP2,alg_LP3,sign,c,d);
       }
-   if (intrem1 > BPRIME_LIMIT || intrem2 > BPRIME_LIMIT || 
-      alg_rem > BPRIME_LIMIT || alg_rem2 > BPRIME_LIMIT)
-      {
-      if (FALSESHOW)                    /* show false hits?            */
-        {
-        (void) printf("ALG big %d %d: %d %d\n",c,d, alg_rem,alg_rem2);
-        (void) printf("INT big %d %d: %d %d\n",c,d,intrem1,intrem2);
-        (void) fflush(stdout);
-        }
-      continue;                        /* too big, so ignore           */
-      }
-   relation_count++; 
-   output_relation(intrem1,intrem2,alg_rem,alg_rem2,sign,c,d);
    }      /* end of i loop */
 
 }   /* end of sieve_scanner */
@@ -744,9 +739,9 @@ else subt(temp,answer,answer);
 /*                                                                      */
 /************************************************************************/
  
-void trial_int_div(number,sign,rem1,rem2,loc,column)
+int trial_int_div(number,sign,int_LP1,int_LP2,int_LP3,loc,column)
 int number[],sign,loc,column;
-int *rem1,*rem2;
+int *int_LP1,*int_LP2,*int_LP3;
  
 {   /* start of trial_int_div */
 register int i,rem,tval1;
@@ -757,8 +752,6 @@ double stime,ptime;
 
 primecount = 0;
 int_factor_list[0] = 0;
-*rem1 = 0;
-*rem2 = 0;
 
 //  pull out vector primes first;  these are known to divide a priori
 //  it would make the cofactor slightly smaller and hence div_single
@@ -897,89 +890,15 @@ while (i<count)
    i++;
    }
 
-/*      Now, all primes in the factor base have been tried. If the     */
-/*      remaining cofactor is less than MAX_SPLIT^2 then check if      */
-/*      it is prime. If it is prime and less than BPRIME_LIMIT it is   */
-/*      a single large prime. If composite, try to factor it with      */
-/*      SQUFOF.   If it is single precision we are done.               */
-
-if (INT_DEBUG) { (void) printf("After divisions: "); write_num(number,numstr); }
-
-if (SIZE(number) == SINGLE)                     /* check cofactor      */
-   {                                            /* if single prec      */
-   if (FIRST(number) == 1)
-//   if (FIRST(number) <= int_pmax)             /* we are done         */
-     {
-     *rem1 = 1;                                 /* fully factored      */   
-     return;
-     }
-   *rem1 = FIRST(number);                       /* one large prime     */
-   *rem2 = 1;
-   int_factor_list[0] = primecount;
-   if (FALSECOUNT) 
-      {
-      if (*rem1 > BPRIME_LIMIT) int_prime++;  
-      }
-   return;
-   }   
-
-if (INT_DEBUG)
-   {
-   (void) printf("done w/ div: number = "); write_num(number,numstr);
-   fflush(stdout);
-   }
-if (SIZE(number) > DOUBLE || mpcmp(number,bpsquared) > 0)
-   {
-   *rem1 = BPRIME_LIMIT+1; 
-   if (FALSECOUNT) int_cofactor++;            /* cofactor too big      */
-   return;                           
-   }
-
-if (mpcmp(number,int_pmax_squared) == -1)      /* cofactor < pmax^2    */
-   {                                           /* thus it must be prime*/
-   if (FALSECOUNT) int_prime++;                /* since it isn't single*/
-   *rem1 = BPRIME_LIMIT+1;                     /* it is too big        */                        
-   }
-
-/*   OK,  the number is greater than pmax^2 and less than SPLIT_LIMIT^2*/
-
-if (TIME_STATS) ptime = get_time();
-result = fast_ptest(number);
-if (TIME_STATS) total_ptime += (get_time() - ptime);
-if (result == 1)                             /* if cofactor is prime   */               
-   { 
-   *rem1 = BPRIME_LIMIT+1;
-   if (FALSECOUNT) int_prime++;              /* prime cofac too big    */
-   return;
-   }
-
-/*      OK. The number is composite and less than SPLIT_LIMIT^2.       */
-/*      Try   to do it by squfof/qs.                                   */
-
-if (INT_DEBUG)
-   {
-   (void) printf("squfof is trying: ");
-   write_num(number,numstr);
-   fflush(stdout);
-   }
-
-if (TIME_STATS) stime = get_time();
-result = squfof(number,rem1,rem2);
-if (TIME_STATS) squfof_time += (get_time() - stime);
-
-if (DEBUG) { (void) printf("squfof returns: %d %d %d\n",result,*rem1, *rem2); }
-
-if (result == 0)                                        /* no luck   */
-   {
-   *rem1 = BPRIME_LIMIT+1;
-   if (SQUFOF_FAIL) { (void) printf("squfof fail\n"); fflush(stdout); }
-   return;
-   }
-if (FALSECOUNT)              /* factors returned by squfof too big   */
-   {
-   if (*rem1 > BPRIME_LIMIT || *rem2 > BPRIME_LIMIT) int_bad++;
-   }
 int_factor_list[0] = primecount;
+
+/*      Now, all primes in the factor base have been tried. Process     */
+/*      the remaining cofactor                                          */
+if (TIME_STATS) stime = get_time();
+result = cofactorize(number, int_LP1, int_LP2, int_LP3);
+if (TIME_STATS) cofac_time += (get_time() - stime);
+
+return result;
 
 }   /* end of trial_int_div */
  
@@ -991,8 +910,9 @@ int_factor_list[0] = primecount;
 /*                                                                      */
 /************************************************************************/
  
-trial_alg_div(number,sign,alg_rem2,loc,column)
-int number[],sign,*alg_rem2,loc,column;
+trial_alg_div(number,sign,alg_LP1,alg_LP2,alg_LP3,loc,column)
+int number[],sign,loc,column;
+int *alg_LP1,*alg_LP2,*alg_LP3;
  
 {   /* start of trial_alg_div */
 register int i,j,rem,tval1;
@@ -1002,8 +922,6 @@ double stime,ptime;
 
 primecount = 0;
 alg_factor_list[0] = 0;
-
-*alg_rem2 = 0;
 
 /*   first do small primes; we can't determine if they divide just by   */
 /*   looking at the sieve location, so we must do full trial division   */
@@ -1145,71 +1063,17 @@ while (i<count)
    i++;
    }
  
-/*   Now, all primes in the factor base have been tried. If the       */
-/*   remaining cofactor is less than BPRIME_LIMIT^2 then check if     */
-/*   it is prime. If it is prime and less than BPRIME_LIMIT it is     */
-/*   a single large prime. If composite, try to factor it with        */
-/*   SQUFOF.   If it is single precision we are done.                 */
+alg_factor_list[0] = primecount;
+
+/*   Now, all primes in the factor base have been tried. Process      */
+/*   the remaining cofactor                                           */
 
 if (ALG_DEBUG) { (void) printf("After divisions: "); write_num(number,numstr); }
 
-if (SIZE(number) == SINGLE)                       /* check cofactor   */
-   {                                              /* if single prec   */
-//   if (FIRST(number) <= alg_pmax) return(1);       /* we are done   */  
-   if (FIRST(number) == 1) return(1);
-   if (FALSECOUNT) if (FIRST(number) > BPRIME_LIMIT) alg_prime++;
-   alg_factor_list[0] = primecount;
-   return(FIRST(number));                        /* one large prime   */
-   }   
-
-if (SIZE(number) > DOUBLE || mpcmp(number,bpsquared) > 0)
-   {
-   if (FALSECOUNT) alg_cofactor++;               /* cofactor too big  */
-   return(BPRIME_LIMIT+1);                  
-   }
-
-if (mpcmp(number,alg_pmax_squared) == -1)     /* cofactor < pmax^2    */
-   {                                          /* thus it must be prime*/
-   if (FALSECOUNT) alg_prime++;               /* since it isn't single*/
-   return(BPRIME_LIMIT+1);                    /* it is too big        */                           
-   }
-
-if (ALG_DEBUG) (void) printf("calling ptest\n");
-if (TIME_STATS) ptime = get_time();
-result = fast_ptest(number);
-if (TIME_STATS) total_ptime += (get_time() - ptime);
-if (result == 1)                              /* if cofactor is prime */               
-   {                                          /* then it is too big   */
-   if (FALSECOUNT) alg_prime++;
-   return(BPRIME_LIMIT+1);
-   }
-
-/*      OK. The number is composite and less than SPLIT_LIMIT^2.      */
-/*      Try to do it by squfof.                                       */
-
-if (ALG_DEBUG) 
-   {
-   (void) printf("squfof is trying: ");
-   write_num(number,numstr);
-   }
-
 if (TIME_STATS) stime = get_time();
-result = squfof(number,&alg_rem,alg_rem2);
-if (TIME_STATS) squfof_time += (get_time() - stime);
-
-if (ALG_DEBUG) { (void) printf("alg squfof: %d %d %d\n",result,alg_rem, *alg_rem2);}
-
-if (result == 0)                               /* no luck             */
-   {
-   if (SQUFOF_FAIL) (void) printf("alg squfof fail\n");
-   return(BPRIME_LIMIT+1);
-   }
-if (FALSECOUNT)               /* factors returned by squfof too big   */
-   {
-   if (alg_rem > BPRIME_LIMIT || *alg_rem2 > BPRIME_LIMIT) alg_bad++;
-   }
-alg_factor_list[0] = primecount;
-return(alg_rem);
+result = cofactorize(number,alg_LP1,alg_LP2,alg_LP3);
+if (TIME_STATS) cofac_time += (get_time() - stime);
+return result;
 
 }   /* end of trial_alg_div */
  
@@ -4277,413 +4141,105 @@ return((unsigned char) eval);
 
 }   /* end of refine_int_log */
 
-/************************************************************************/
-/*                                                                      */
-/*   Routine to factor a number via Shanks' SQUFOF                      */
-/*                                                                      */
-/*   Returns squfof = 1 and factors in fac1 <= fac2 if successful       */
-/*   Returns squfof = 0 if unsuccessful                                 */
-/*                                                                      */
-/*   Changed in 11/04. First call QS. (it is faster). Then call SQUFOF  */
-/*  if QS fails                                                         */
-/*                                                                      */
-/************************************************************************/
-
-squfof(n,fac1,fac2)
-int n[];
-int *fac1, *fac2;
-
-{   /* start of squfof: factor n as fac1*fac2  faster in FP?????*/
-
-int temp[MPDIM], temp1[MPDIM];
-register int iq,ll,l2,p,pnext,q,qlast,r,s,t,i;
-int jter,iter;
-
-if (SQUFOF) squfof_calls++;
-#define   DEBUG_QSC   0
-if (DEBUG_QSC) { (void) printf("trying qs on: "); write_num(n,numstr); fflush(stdout); }
-jter = small_qs(n,fac1,fac2);
-if (DEBUG_QSC)
-   {
-   (void) printf("qs returns %d\n",jter);
-   (void) printf("tried qs on "); write_num(n, numstr);
-   (void) printf("fac1, fac2 = %d %d, squfof returning %d\n", *fac1, *fac2, jter);
-   fflush(stdout);
-   }         /* -1 should be very rare; QS found no non-trivial GCD's   */
-if (jter != -1) return(jter); 
-
-/*   Notes: could replace calls to the MP routines [on Pentium] by using*/
-/*  __int64  for temp,temp1, convert n to __int64 etc. But the MP stuff */
-/*  is not inside a loop. It is not worth doing                         */
-
-qlast = 1;
-mpsqrt(n,temp);
-
-s = LAST(temp);
-p = s;
-mult(temp,temp,temp1);
-subt(n,temp1,temp);                    /* temp = n - floor(sqrt(n))^2   */
-if (SIZE(temp) <= SINGLE && LAST(temp) == 0)
-   {                                   /* Here n is a square            */
-   *fac1 = s;
-   *fac2 = s;
-   return(1);
-   }
-
-q = LAST(temp);              /* q = excess of n over next smaller square */
-ll = 1 + 2*(int)sqrt((double)(p+p));
-l2 = ll/2;
-qpoint = 0;
-
-/*   In the loop below, we need to check if q is a square right before   */
-/*  the end of the loop.  Is there a faster way? The current way is      */
-/*   EXPENSIVE! (many branches and double prec sqrt)                     */
-
-for (jter=0; jter < 800000; jter++)      /* I see no way to speed this   */
-   {                                     /*  main loop                   */
-   iq = (s + p)/q;   
-   pnext = iq*q - p;
-   if (q <= ll)
-      {
-      if ((q & 1) == 0) enqu(q/2,&jter);
-      else if (q <= l2) enqu(q,&jter);
-      if (jter < 0)
-          {                        /* queue overflow: try pollard rho   */
-         if (Q_OVERFLOW) overflow_count++;    /* should be rare         */
-          return(pollardrho2(n,fac1,fac2));   /* also try squfof(3N)?   */
-          }
-      }
-   t = qlast + iq*(p - pnext);
-   qlast = q;
-   q = t;
-   p = pnext;                          /* check for square; even iter   */
-   if (jter & 1) continue;             /* jter is odd:omit square test  */
-//   if (t = (q & 3) > 1) continue;    /* skip t = 2,3 mod 4            */
-//   if (q & 7 == 5) continue;         /* skip q = 5 mod 8              */
-//   if (t == 0 && (q & 15) > 5) continue;   /* skip 8, 12 mod 16       */
-//   if (s3465[q % 3465] == 'n') continue;   /* skip QNR's mod 3465     */
-   r = (int)sqrt((double)q);                 /* r = floor(sqrt(q))      */
-   if (q != r*r) continue;
-   if (qpoint == 0) goto gotit;
-   for (i=0; i<qpoint-1; i+=2)      /* treat queue as list for simplicity*/
-      {
-      if (r == qqueue[i]) goto contin;
-      if (r == qqueue[i+1]) goto contin;
-      }
-   if (r == qqueue[qpoint-1]) continue;
-   goto gotit;
-contin:;   
-   }   /* end of main loop */
-
-if (DEBUG) { (void) printf("calling rho on: "); write_num(n,numstr); }
-if (RHO_TALLY) rho_calls++;
-
-return(pollardrho2(n,fac1,fac2));         /* very rare                 */
-
-gotit:   ;
-qlast = r;
-p = p + r*((s - p)/r);
-SIZE(temp1) = SINGLE;
-LAST(temp1) = p;
-mult(temp1,temp1,temp);
-subt(n,temp,temp);
-div_single(temp,qlast,temp1);
-q = LAST(temp1);                  /* q = (n - p*p)/qlast (div is exact)*/
-for (iter=0; iter<40000; iter++)
-   {                              /* begin second main loop            */
-   iq = (s + p)/q;                /* unroll it, of course              */
-   pnext = iq*q - p;
-   if (p == pnext) goto gotfac;
-   t = qlast + iq*(p - pnext);
-   qlast = q;
-   q = t;
-   p = pnext;
-   iq = (s + p)/q;
-   pnext = iq*q - p;
-   if (p == pnext) goto gotfac;
-   t = qlast + iq*(p - pnext);
-   qlast = q;
-   q = t;
-   p = pnext;
-   iq = (s + p)/q;
-   pnext = iq*q - p;
-   if (p == pnext) goto gotfac;
-   t = qlast + iq*(p - pnext);
-   qlast = q;
-   q = t;
-   p = pnext;
-   iq = (s + p)/q;
-   pnext = iq*q - p;
-   if (p == pnext) goto gotfac;
-   t = qlast + iq*(p - pnext);
-   qlast = q;
-   q = t;
-   p = pnext;
-   }
-
-if (SQUFOF_FAIL) squfof_fail++;
-return(0);                               /* this shouldn't happen      */
-
-gotfac:   ; if ((q & 1) == 0) q/=2;      /* q was factor or 2*factor   */
-*fac1 = q;
-t = div_single(n,q,temp);
-if (SIZE(temp) > SINGLE || t != 0) 
-   {
-   if (SPLITCHECK) badsplit++;
-   return (0);
-   }
-*fac2 = LAST(temp);
-return(1);
-}
 
 /************************************************************************/
 /*                                                                      */
-/*      Routines to prepare tables for squfof algorithm                 */
+/*   Routine to output relations to the nfs.out file (GGNFS format)     */
 /*                                                                      */
 /************************************************************************/
- 
 
-void sqfprep()
+static ullong mp2u64(int * x)
 {
-int i;
-for (i=0; i<3465; i++) s3465[i] = 'n';
-for (i=0; i<1733; i++) s3465[(i*i) % 3465] = 'r';
+    if (SIZE(x) == SINGLE)
+       {
+       return (ullong)x[1];
+       }
+    return (ullong)x[1] * RADIX | x[2];
 }
 
-void enqu(q,iter)
-int q;
-int *iter;
-{
-qqueue[qpoint] = q;
-if (++qpoint > 50) *iter = -1;
-}
-
-
-/************************************************************************/
-/*                                                                      */
-/*   Routine to output relations to the nfs.out file                    */
-/*                                                                      */
-/************************************************************************/
-
-void output_relation(ilp1, ilp2, alp, alp2, sign, a, b)
-int ilp1,ilp2;
-int alp,alp2,sign,a,b;
+void output_relation(int_LP1, int_LP2, int_LP3, 
+					 alg_LP1, alg_LP2, alg_LP3,
+					 sign, a, b)
+int *int_LP1, *int_LP2, *int_LP3;
+int *alg_LP1, *alg_LP2, *alg_LP3;
+int sign,a,b;
 
 {   /* start of output_relation */
-int whichcase,tmp;
-int icount,acount, ifirst, afirst, i;
-int nint, nalg;
+int icount,acount, i;
+int one[MPDIM];
 
-if (ilp1 < ilp2)
-   {
-   tmp = ilp2;
-   ilp2 = ilp1;
-   ilp1 = tmp;
-   }
-
-if (alp < alp2)
-   {
-   tmp = alp2;
-   alp2 = alp;
-   alp = tmp;
-   }
-
-if (DEBUG_OUTPUT) 
-   (void) printf("ilp1,ilp2,alp = %d %d %d %d\n",ilp1,ilp2,alp,alp2);
-
-whichcase = 0;
-if (ilp1 > 1) whichcase += IL1;
-if (ilp2 > 1) whichcase += IL2;
-if (alp  > 1) whichcase += AL1;
-if (alp2 > 1) whichcase += AL2;
-
-if (DEBUG_OUTPUT) (void) printf("whichcase = %d\n",whichcase);
-if (DEBUG_OUTPUT) (void) printf("a,b = %d %d\n",a,b);
+SIZE(one) = SINGLE;
+LAST(one) = 1;
 
 numtot++;               /* update total number of factorizations   */
 
 icount = int_factor_list[0];
 acount = alg_factor_list[0];
+fprintf(outfile, "%d,%d", a, b);
 
-if (DEBUG_OUTPUT)
+/* rational factors */
+for (i = 1; i <= icount; i++)
    {
-   (void) printf("icount,acount = %d %d\n",icount,acount);
-   for (i=1; i<=icount; i++) (void) printf("%d ",int_factor_list[i]); printf("\n");
-   for (i=1; i<=acount; i++) (void) printf("%d ",alg_factor_list[i]); printf("\n");
-   (void) fflush(stdout);
+   if (int_factor_list[i] > 1000)
+      {
+      fprintf(outfile, "%c%x", (i == 1) ? ':' : ',',
+			   					int_factor_list[i]);
+      }
    }
 
-sort_int_factor_list(int_factor_list);
-
-if (DEBUG_OUTPUT)
+/* rational large primes */
+if (mpcmp(int_LP1, one) > 0)
    {
-   (void) printf("sorted list: ");
-   for (i=0; i<=int_factor_list[0]; i++) (void) printf("%d ",int_factor_list[i]);
-   (void) printf("\n");
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(int_LP1));
+   i++;
    }
- 
-ifirst = icount+1;
-for (i=1; i<=icount; i++)
+if (mpcmp(int_LP2, one) > 0)
    {
-   if (int_factor_list[i] > dump_cutoff)
-   {
-   ifirst = i;
-   break;
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(int_LP2));
+   i++;
    }
-   }
- 
-afirst = acount+1;
-for (i=1; i<=acount; i++)
+if (mpcmp(int_LP3, one) > 0)
    {
-   if (alg_factor_list[i] > dump_cutoff)
-   {
-   afirst = i;
-   break;
-   }
-   }
- 
-if (DEBUG_OUTPUT) { (void) printf("ifirst,afirst = %d %d\n",ifirst,afirst); (void) fflush(stdout); }
-
-nint = icount - ifirst + 1;
-nalg = acount - afirst + 1;
-
-if (DEBUG_OUTPUT) { (void) printf("#int, #alg = %d %d\n",nint,nalg); (void) fflush(stdout); }
-
-switch(whichcase)
-   {
-   case FF:
-     numff++;
-      (void) fprintf(outfile,"01%c%c %d %d",nint+'0',nalg+'0',-a,b);
-     dump_int_factors(ifirst,icount);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case FP:
-     numfp++;
-      (void) fprintf(outfile,"01%c%c %d %d",nint+'0',nalg+'0'+1,-a,b);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d",alp);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case PF:
-     numpf++;
-      (void) fprintf(outfile,"01%c%c %d %d %d",nint+'0'+1,nalg+'0',-a,b,ilp1);
-     dump_int_factors(ifirst,icount);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case PPF:
-     numppf++;
-      (void) fprintf(outfile,"01%c%c %d %d %d %d",nint+'0'+2,nalg+'0',-a,b,ilp1,ilp2);
-     dump_int_factors(ifirst,icount);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case PP:
-     numpp++;
-      (void) fprintf(outfile,"01%c%c %d %d %d",nint+'0'+1,nalg+'0'+1,-a,b,ilp1);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d",alp);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case PPQ:
-     numppq++;
-      (void) fprintf(outfile,"01%c%c %d %d %d %d",nint+'0'+2,nalg+'0'+1,-a,b,ilp1,ilp2);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d",alp);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case QPP:
-     numqpp++;
-      (void) fprintf(outfile,"01%c%c %d %d %d",nint+'0'+1,nalg+'0'+2,-a,b,ilp1);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d %d",alp,alp2);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case FPP:
-     numfpp++;
-      (void) fprintf(outfile,"01%c%c %d %d",nint+'0',nalg+'0'+2,-a,b);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d %d",alp,alp2);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
-   case PPPP:
-     numpppp++;
-      (void) fprintf(outfile,"01%c%c %d %d %d %d",nint+'0'+2,nalg+'0'+2,-a,b,ilp1,ilp2);
-     dump_int_factors(ifirst,icount);
-      (void) fprintf(outfile," %d %d",alp,alp2);
-     dump_alg_factors(afirst,acount);
-     (void) fprintf(outfile,";\n");
-     break;
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(int_LP3));
    }
 
+/* algebraic factors */
+for (i = 1; i <= acount; i++)
+   {
+   if (alg_factor_list[i] > 1000)
+      {
+      fprintf(outfile, "%c%x", (i == 1) ? ':' : ',',
+			   					alg_factor_list[i]);
+      }
+   }
+
+/* algebraic large primes */
+if (mpcmp(alg_LP1, one) > 0)
+   {
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(alg_LP1));
+   i++;
+   }
+if (mpcmp(alg_LP2, one) > 0)
+   {
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(alg_LP2));
+   i++;
+   }
+if (mpcmp(alg_LP3, one) > 0)
+   {
+   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+			   					mp2u64(alg_LP3));
+   }
+
+   fprintf(outfile, "\n");
 (void) fflush(outfile);
  
 }   /* end of output_relation */
  
-/************************************************************************/
-/*                                                                      */
-/*   Routine to dump integer side large primes to output file           */
-/*                                                                      */
-/************************************************************************/
- 
-void dump_int_factors(start,end)
-int start,end;
-
-{   /* start of dump_int_factors */
-int i;
-
-if (DEBUG_OUTPUT) { (void) printf("dumping int: start,end = %d %d\n",start,end); }
-
-for (i=end; i>=start; i--) (void) fprintf(outfile," %d",int_factor_list[i]);
-
-}   /* end of dump_int_factors */
- 
-/************************************************************************/
-/*                                                                      */
-/*   Routine to dump algebraic side large primes to output file         */
-/*                                                                      */
-/************************************************************************/
- 
-void dump_alg_factors(start,end)
-int start,end;
-
-{   /* start of dump_alg_factors */
-int i;
-
-if (DEBUG_OUTPUT) 
-   {
-   (void) printf("dumping alg: start,end = %d %d\n",start,end); 
-   (void) fflush(stdout); 
-   }
- 
-for (i=end; i>=start; i--) (void) fprintf(outfile," %d",alg_factor_list[i]);
-
-}   /* end of dump_alg_factors */
-
- 
-/************************************************************************/
-/*                                                                      */
-/*   Debug routine; now obsolete/not needed                             */
-/*                                                                      */
-/************************************************************************/
-void dump_list(a)
-int a[];
-
-{
-int i;
-
-(void) printf("list %d:\n",a[0]);
-for (i=1; i<=a[0]; i++) (void) printf("%d ",a[i]);
-(void) printf("\n");
-}
-
-
 /************************************************************************/
 /*                                                                      */
 /*   Routine to compute poly roots for powers of algebraic              */
@@ -5821,7 +5377,7 @@ trial_int_time = 0.0;
 trial_alg_time = 0.0;
 find_startpt_time = 0.0;
 alg_scan_time = 0.0;
-squfof_time = 0.0;
+cofac_time = 0.0;
 latred_time = 0.0;
 find_success_time = 0.0;  
 total_ptime = 0.0; 
@@ -5847,9 +5403,9 @@ alg_prime =  0;
 int_cofactor =  0;
 alg_cofactor =  0;
 total_hits =  0;
-squfof_fail =  0;
+cofac_fail =  0;
 overflow_count =  0;
-squfof_calls =  0;
+cofac_calls =  0;
 badsplit = 0;
 rho_calls =  0;
 total_q_successes = 0;
