@@ -1,3 +1,9 @@
+#ifdef _MSC_VER
+typedef unsigned __int64 ullong;
+#else
+typedef unsigned long long ullong;
+#endif
+
 FILE *input;						/* data input					*/
 FILE *rest;							/* holds restart results		*/
 FILE *fbase;						/* holds factor base etc.		*/
@@ -87,7 +93,9 @@ int  numtot,						/* total factorizations			*/
      ending_q,						/* ending q index for this run	*/
      starting_a,					/* starting a for sieve interval*/
      genpoly,						/* flag for general polynomial	*/
-     restart;						/* restart option				*/
+     restart,						/* restart option				*/
+     num_lp_r,                                          /* number of rational large primes */
+     num_lp_a;                                          /* number of algebraic large primes */
  
 int size_int_base,					/* size of factor base: lhs		*/
     size_alg_base,					/* size of factor base: rhs		*/
@@ -106,8 +114,6 @@ int size_int_base,					/* size of factor base: lhs		*/
 	alg_2hits,
 	alg_1hits,
 	alg_linesieve,
-	BPRIME_LIMIT,					/* largest big prime; read from file	*/
-    SPLIT_LIMIT,					/* this^2. size limit for cofactors		*/
     nsieve;							/* number of intervals to sieve			*/
 
 double tolerance,					/* tol for large prime: pmax^tolerance	*/
@@ -134,8 +140,11 @@ unsigned char
      *sieve,						/* byte array for line sieving			*/
      int_logp[FBASE],				/* scaled logs of factor base: int side	*/
      alg_logp[FBASE],				/* scaled logs of factor base: alg side	*/
-     s3465[3465],					/* table s3465 of QR's for squfof		*/
      sieve_array[NCOLUMNS+1][MAX_SIEVE+1];	/* global sieve array			*/
+
+ullong
+	BPRIME_LIMIT_R,					/* largest big prime; read from file	*/
+	BPRIME_LIMIT_A;					/* largest big prime; read from file	*/
 
 static int smallp[] = { 256,243,625,343,121,169,289,361,529,841,961 };
 
