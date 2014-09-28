@@ -138,13 +138,6 @@ Finish red-doing latred
 static int gwcount = 0;    //GW
 static int gwcount2 = 0;   //GW
 
-#ifdef _MSC_VER
-typedef unsigned __int64 ullong;
-#else
-typedef unsigned long long ullong;
-#endif
-
-
 /*      #include <sys/times.h>  (Unix only)  or calls to get_rusage           */
 
 #define   FACTOR_BASE_ASCII    "ASCII_BASE"
@@ -246,6 +239,15 @@ int big_special_q[100000], big_roots[100000];
 /*                                                                      */
 /************************************************************************/
 
+static ullong mp2u64(int * x)
+{
+    if (SIZE(x) == SINGLE)
+       {
+       return (ullong)x[1];
+       }
+    return (ullong)x[1] * RADIX | x[2];
+}
+
 
 /************************************************************************/
 /*                                                                      */
@@ -335,12 +337,10 @@ if (field_flag != PUREFIELD)        /* get coeffs if field not 'pure' */
 for (i=0; i<=int_degree; i++)      /* coeffs of norm of linear poly   */
    get_file(int_polyc[i],input);
 
-(void) fscanf(input,"%d",&BPRIME_LIMIT);   /* limit on large primes   */
-(void) fscanf(input,"%d",&SPLIT_LIMIT);    /* cofactor size limit     */
-SIZE(bpsquared) = SINGLE;
-FIRST(bpsquared) = SPLIT_LIMIT;
-mul_single(bpsquared,SPLIT_LIMIT,bpsquared);
-
+(void) fscanf(input,"%I64d",&BPRIME_LIMIT_R);   /* limit on rational large primes   */
+(void) fscanf(input,"%d",&num_lp_r);            /* number of rational large primes */
+(void) fscanf(input,"%I64d",&BPRIME_LIMIT_A);   /* limit on algebraic large primes   */
+(void) fscanf(input,"%d",&num_lp_a);            /* number of algebraic large primes */
 
 /*   Partition factor base according to #hits the primes take         */
 /*   in a sub-interval; this is for loop unrolling during sieving     */
@@ -382,8 +382,8 @@ for (i=0; i<NUMSMALLP; i++)            /* logs of small prime powers  */
 /*      compute  some constants that will help the computation of     */
 /*      the sieve threshhold values.                                  */        
 
-log_pmax_rhs = ALG_TOL * log((double)BPRIME_LIMIT)/LOGB;
-log_pmax_lhs = INT_TOL * log((double)BPRIME_LIMIT)/LOGB;
+log_pmax_rhs = num_lp_a * log((double)BPRIME_LIMIT_A)/LOGB;
+log_pmax_lhs = num_lp_r * log((double)BPRIME_LIMIT_R)/LOGB;
 log_PART1 = ((double)(SIZE(int_polyc[1])-2) * log((double)RADIX) + 
          log((double)FIRST(int_polyc[1])))/LOGB;
 log_PART2 = ((double)(SIZE(int_polyc[0])-2) * log((double)RADIX) + 
@@ -750,6 +750,9 @@ int primecount,count;
 int index;
 double stime,ptime;
 
+SIZE(int_LP1) = 0;
+SIZE(int_LP2) = 0;
+SIZE(int_LP3) = 0;
 primecount = 0;
 int_factor_list[0] = 0;
 
@@ -920,6 +923,9 @@ int temp[MPDIM],count;
 int primecount,alg_rem,result,index;
 double stime,ptime;
 
+SIZE(alg_LP1) = 0;
+SIZE(alg_LP2) = 0;
+SIZE(alg_LP3) = 0;
 primecount = 0;
 alg_factor_list[0] = 0;
 
@@ -1018,9 +1024,17 @@ while (i < alg_linesieve)
                   }
                else
                   {                        /* cofactor is LP   */
-                  alg_factor_list[0] = primecount;
-                  if (FALSECOUNT) if (FIRST(number) > BPRIME_LIMIT) alg_prime++;
-                  return(FIRST(number));
+                  if (mp2u64(number) > BPRIME_LIMIT_A)
+                     {
+                     if (FALSECOUNT) alg_prime++;
+                     return(0);
+                     }
+                  else
+                     {
+                     small_mpcopy(number, alg_LP1);
+                     alg_factor_list[0] = primecount;
+                     return(1);
+                     }
                   }
                }  /* check p^2 */
             }
@@ -4147,15 +4161,6 @@ return((unsigned char) eval);
 /*   Routine to output relations to the nfs.out file (GGNFS format)     */
 /*                                                                      */
 /************************************************************************/
-
-static ullong mp2u64(int * x)
-{
-    if (SIZE(x) == SINGLE)
-       {
-       return (ullong)x[1];
-       }
-    return (ullong)x[1] * RADIX | x[2];
-}
 
 void output_relation(int_LP1, int_LP2, int_LP3, 
 					 alg_LP1, alg_LP2, alg_LP3,

@@ -2,6 +2,7 @@
 #include "alphad.h"
 #include "mpdim.h"
 #include "functions.h"
+#include "cofactorize.h"
 
 int cofactorize(int *n, int *LP1, int *LP2, int *LP3)
 {

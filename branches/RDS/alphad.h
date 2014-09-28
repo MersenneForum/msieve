@@ -45,8 +45,6 @@
 
 /*		Algorithm Parameters									     */
 
-#define	ALG_TOL		2.00			/* tolerance for algebraic large p	*/
-#define	INT_TOL		2.00			/* tolerance for integer large p	*/
 #define	SLEEPTIME	3000			/* time to wait: fopens millisec	*/
 
 #define	ALG_REFINE_FREQ	100			/* how often refine alg threshhold	*/
