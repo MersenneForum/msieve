@@ -56,6 +56,7 @@ void
 	init_count_variables(),
 	init_time_variables(),
 	show_region(int index),
+	cofac_setup(),
 	update_int_start_points(int s),
 	update_alg_start_points(int s),
     update_range_file(int q_value, int current_q);
@@ -83,7 +84,7 @@ int
 	alg_hash(int c, int d),
 	show_hash(int b),
 	reject_this_q(),
-	cofactorize(int *number, int *LP1, int *LP2, int *LP3),
+	cofactorize(int *number, int *LP1, int *LP2, int *LP3, int is_rat),
 	show_areas(),
 	show_int_vector(),
 	show_alg_vector();

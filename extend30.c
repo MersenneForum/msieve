@@ -3,7 +3,7 @@
 /*               L A T T I C E   S I E V E                              */
 /*                                                                      */
 /*   Program to factor numbers using the Number Field Sieve             */
-/*   algorithm with 2 large primes on each side (4 in all)              */
+/*   algorithm with up to 3 large primes on each side                   */
 /*                                                                      */
 /*                                                                      */
 /*   This code handles the sieving and factoring of residues.           */
@@ -19,6 +19,7 @@
 /*   Bob Silverman  V1: 10/04;                                          */
 /*   Additions by George Woltman V3: 7/05                               */
 /*   Extensive optimizations 7/05, 8/05                                 */
+/*   3LP extensions, LP bound > 2^32 by Jason Papadopoulos 9/14         */
 /*                                                                      */
 /************************************************************************/
 
@@ -395,7 +396,7 @@ if (DEBUG_REF_INT) (void) printf("Part1, Part2, log_lhs = %g %g %g\n",
 degree = (double)fdegree;
 fconst = (double)poly_constant;
 
-//sqfprep();                  /* prepare quad. res. table for squfof   */
+cofac_setup();                  /* prepare cofactorization subsystem */
 
 /*   This new code gets its assignments for the range of q's to do     */
 /*   from a file called 'range'. It finds an unassigned range,         */
@@ -898,7 +899,7 @@ int_factor_list[0] = primecount;
 /*      Now, all primes in the factor base have been tried. Process     */
 /*      the remaining cofactor                                          */
 if (TIME_STATS) stime = get_time();
-result = cofactorize(number, int_LP1, int_LP2, int_LP3);
+result = cofactorize(number,int_LP1,int_LP2,int_LP3,1);
 if (TIME_STATS) cofac_time += (get_time() - stime);
 
 return result;
@@ -1085,7 +1086,7 @@ alg_factor_list[0] = primecount;
 if (ALG_DEBUG) { (void) printf("After divisions: "); write_num(number,numstr); }
 
 if (TIME_STATS) stime = get_time();
-result = cofactorize(number,alg_LP1,alg_LP2,alg_LP3);
+result = cofactorize(number,alg_LP1,alg_LP2,alg_LP3,0);
 if (TIME_STATS) cofac_time += (get_time() - stime);
 return result;
 
