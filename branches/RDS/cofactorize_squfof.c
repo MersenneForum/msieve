@@ -239,18 +239,6 @@ static u32 squfof_one_cycle(squfof_data_t *data, u32 mult_idx,
 }
 
 /*-----------------------------------------------------------------------*/
-static u64 gmp2u64(mpz_t src) {
-
-  /* mpz_export is terribly slow */
-  u64 ans = mpz_getlimbn(src, 0);
-#if GMP_LIMB_BITS == 32
-  if (mpz_size(src) >= 2)
-    ans |= (u64)mpz_getlimbn(src, 1) << 32;
-#endif
-  return ans;
-}
-
-/*-----------------------------------------------------------------------*/
 u32 squfof(mpz_t n) {
 
   /* Factor a number up to 62 bits in size using SQUFOF.
