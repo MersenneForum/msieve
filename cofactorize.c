@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 #include "alphad.h"
 #include "alphag.h"
 #include "mpdim.h"
@@ -92,12 +94,12 @@ void cofac_setup()
 
 static void mp2gmp(int *x, mpz_t out)
 {
-  mpz_import(out, SIZE(x), 1, sizeof(int), 0, 2, &x[1]);
+  mpz_import(out, SIZE(x), -1, sizeof(int), 0, 2, &x[1]);
 }
 
 static void gmp2mp(mpz_t x, int *out)
 {
-  mpz_export(&out[1], &out[0], 1, 0, sizeof(int), 2, x);
+  mpz_export(&out[1], &out[0], -1, 0, sizeof(int), 2, x);
 }
 
 int cofactorize(int *mp_n, int *LP1, int *LP2, int *LP3, int is_rat)

@@ -246,7 +246,7 @@ static ullong mp2u64(int * x)
        {
        return (ullong)x[1];
        }
-    return (ullong)x[1] * RADIX | x[2];
+    return (ullong)x[2] * RADIX | x[1];
 }
 
 
@@ -390,8 +390,8 @@ log_PART1 = ((double)(SIZE(int_polyc[1])-2) * log((double)RADIX) +
 log_PART2 = ((double)(SIZE(int_polyc[0])-2) * log((double)RADIX) + 
          log((double)FIRST(int_polyc[0])))/LOGB;
 
-if (DEBUG_REF_INT) (void) printf("Part1, Part2, log_lhs = %g %g %g\n",
-                          log_PART1, log_PART2, log_pmax_lhs);
+if (DEBUG_REF_INT) (void) printf("Part1, Part2, log_lhs log_rhs = %g %g %g %g\n",
+                          log_PART1, log_PART2, log_pmax_lhs, log_pmax_rhs);
 
 degree = (double)fdegree;
 fconst = (double)poly_constant;
@@ -4173,6 +4173,7 @@ int sign,a,b;
 {   /* start of output_relation */
 int icount,acount, i;
 int one[MPDIM];
+int num_out;
 
 SIZE(one) = SINGLE;
 LAST(one) = 1;
@@ -4181,43 +4182,42 @@ numtot++;               /* update total number of factorizations   */
 
 icount = int_factor_list[0];
 acount = alg_factor_list[0];
-fprintf(outfile, "%d,%d", a, b);
+fprintf(outfile, "%d,%d:", a, b);
 
 /* rational factors */
-for (i = 1; i <= icount; i++)
+for (i = 1, num_out = 0; i <= icount; i++)
    {
    if (int_factor_list[i] > 1000)
       {
-      fprintf(outfile, "%c%x", (i == 1) ? ':' : ',',
-			   					int_factor_list[i]);
+      fprintf(outfile, "%s%x", (++num_out == 1) ? "" : ",",
+                      int_factor_list[i]);
       }
    }
 
 /* rational large primes */
 if (mpcmp(int_LP1, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(int_LP1));
-   i++;
    }
 if (mpcmp(int_LP2, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(int_LP2));
-   i++;
    }
 if (mpcmp(int_LP3, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(int_LP3));
    }
+fprintf(outfile, ":");
 
 /* algebraic factors */
-for (i = 1; i <= acount; i++)
+for (i = 1, num_out = 0; i <= acount; i++)
    {
    if (alg_factor_list[i] > 1000)
       {
-      fprintf(outfile, "%c%x", (i == 1) ? ':' : ',',
+      fprintf(outfile, "%s%x", (++num_out == 1) ? "" : ",",
 			   					alg_factor_list[i]);
       }
    }
@@ -4225,23 +4225,21 @@ for (i = 1; i <= acount; i++)
 /* algebraic large primes */
 if (mpcmp(alg_LP1, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(alg_LP1));
-   i++;
    }
 if (mpcmp(alg_LP2, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(alg_LP2));
-   i++;
    }
 if (mpcmp(alg_LP3, one) > 0)
    {
-   fprintf(outfile, "%c%I64x", (i == 1) ? ':' : ',',
+   fprintf(outfile, "%s%I64x",  (++num_out == 1) ? "" : ",",
 			   					mp2u64(alg_LP3));
    }
 
-   fprintf(outfile, "\n");
+fprintf(outfile, "\n");
 (void) fflush(outfile);
  
 }   /* end of output_relation */
