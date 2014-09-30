@@ -1,4 +1,6 @@
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "cofactorize.h"
 
 #ifndef M_LN2
