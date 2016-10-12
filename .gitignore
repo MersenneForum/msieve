@@ -1,0 +1,5 @@
+msieve
+libmsieve.a
+*.o
+*.qo
+*.no
