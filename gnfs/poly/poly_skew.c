@@ -115,14 +115,14 @@ static void stage1_callback(mpz_t ad, mpz_t p, mpz_t m, void *extra) {
 	
 	poly_sizeopt_t *data = (poly_sizeopt_t *)extra;
 
-	gmp_printf("%Zd %Zd %Zd\n", ad, p, m);
+	//gmp_printf("%Zd %Zd %Zd\n", ad, p, m);
 	poly_sizeopt_run(data, ad, p, m);
 }
 
 static void stage1_callback_log(mpz_t ad, mpz_t p, mpz_t m, void *extra) {
 	
 	FILE *mfile = (FILE *)extra;
-	gmp_printf("%Zd %Zd %Zd\n", ad, p, m);
+	//gmp_printf("%Zd %Zd %Zd\n", ad, p, m);
 	gmp_fprintf(mfile, "%Zd %Zd %Zd\n", ad, p, m);
 	fflush(mfile);
 }
