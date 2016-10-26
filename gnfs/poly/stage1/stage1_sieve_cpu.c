@@ -475,7 +475,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 
 	num_p = hash_array.num_p;
 	num_roots = hash_array.num_roots;
-#if 1
+#if 0
 	printf("aprogs: %u entries, %u roots\n", num_p, num_roots);
 #endif
 
@@ -607,7 +607,7 @@ sieve_specialq_64(msieve_obj *obj, poly_search_t *poly,
 	}
 
 finished:
-#if 1
+#if 0
 	printf("hashtable: %u entries, %5.2lf MB\n", 
 			(uint32)1 << hashtable_size_log2,
 			(double)sizeof(hash_entry_t) *
@@ -723,10 +723,12 @@ sieve_lattice_cpu(msieve_obj *obj, poly_search_t *poly,
 			special_q_max2 = special_q_max;
 		}
 
+#if 0
 		gmp_printf("coeff %Zd specialq %u - %u other %u - %u\n",
 				c->high_coeff,
 				special_q_min2, special_q_max2,
 				p_min, p_max);
+#endif
 
 		quit = sieve_specialq_64(obj, poly, c, sieve_size,
 				sieve_special_q, sieve_p,

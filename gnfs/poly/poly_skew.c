@@ -55,9 +55,11 @@ rootopt_callback(void *extra, uint32 degree,
 	poly.combined_score = combined_score;
 	poly.skewness = skewness;
 
+#if 0
 	printf("save %le %.4lf %.2lf %le rroots %u\n", size_score,
 			root_score, skewness, combined_score,
 			num_real_roots);
+#endif
 
 	fprintf(data->all_poly_file, 
 		"# norm %le alpha %lf e %.3le rroots %u\nskew: %.2lf\n", 
